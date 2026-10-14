@@ -1,0 +1,32 @@
+plugins { id 'com.android.application' }
+
+android {
+    namespace 'com.kagemonark.system'
+    compileSdk 34
+
+    defaultConfig {
+        applicationId 'com.kagemonark.system'
+        minSdk 26
+        targetSdk 34
+        versionCode (System.getenv('GITHUB_RUN_NUMBER') ?: '1').toInteger()
+        versionName "1.0.${System.getenv('GITHUB_RUN_NUMBER') ?: '0'}"
+    }
+    signingConfigs {
+        kage {
+            storeFile file('kage.jks')
+            storePassword 'kagemonark'
+            keyAlias 'kage'
+            keyPassword 'kagemonark'
+        }
+    }
+    buildTypes {
+        release { minifyEnabled false; signingConfig signingConfigs.kage }
+        debug { signingConfig signingConfigs.kage }
+    }
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+    lint { abortOnError false; checkReleaseBuilds false }
+    androidResources { noCompress 'html' }
+}
