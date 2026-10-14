@@ -1,0 +1,1823 @@
+<script>
+"use strict";
+let booted = false;   // true once every section below is defined
+let entered = false;  // true once the hunter passed the identity gate
+
+/* =========================================================
+   1. LOCAL STORAGE (safe) + KEYS (unchanged from v2 so data carries over)
+   ========================================================= */
+const KEYS = {
+  reminders:"jarvis.shadow.reminders.v2", quests:"jarvis.shadow.quests.v1", player:"jarvis.shadow.player.v1",
+  profile:"jarvis.shadow.profile.v1", migrated:"jarvis.shadow.migrated", daily:"jarvis.shadow.daily.v1",
+  notifs:"jarvis.shadow.notifs.v1", session:"jarvis.shadow.session.v1", merged:"jarvis.shadow.merged.v1"
+};
+const LEGACY_REMINDER_KEYS = ["reminders","jarvisReminders","jarvis_reminders","JARVIS_REMINDERS","jarvis-reminders","shadowReminders","jarvis.reminders"];
+const LS = (() => {
+  let ok = true;
+  try { const k="__jarvis_test__"; localStorage.setItem(k,"1"); localStorage.removeItem(k); } catch { ok = false; }
+  return {
+    ok,
+    get(key, fallback){ if(!ok) return fallback; try{ const v = localStorage.getItem(key); return v==null ? fallback : JSON.parse(v); } catch { return fallback; } },
+    set(key, value){ if(!ok) return false; try{ localStorage.setItem(key, JSON.stringify(value)); return true; } catch { toast("Could not save. Browser storage may be full.", "err"); return false; } },
+    del(key){ if(!ok) return; try{ localStorage.removeItem(key); }catch{} }
+  };
+})();
+const uid = () => (crypto.randomUUID ? crypto.randomUUID() : Date.now().toString(36)+Math.random().toString(36).slice(2));
+const clone = v => JSON.parse(JSON.stringify(v));
+const pad = n => String(n).padStart(2,"0");
+const dayKey = (d=new Date()) => `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`;
+
+/* =========================================================
+   2. NORMALIZERS (accept old versions and synced data safely)
+   ========================================================= */
+function normalizeReminder(r){
+  if(!r || typeof r !== "object") return null;
+  const title = String(r.title ?? r.text ?? r.name ?? r.message ?? "").trim();
+  let due = null;
+  for(const c of [r.due, r.dueAt, r.datetime, r.dateTime, r.timestamp, r.when]){ if(c!=null && c!==""){ const t = typeof c==="number" ? c : Date.parse(c); if(!isNaN(t)){ due=t; break; } } }
+  if(due==null && r.date){ const t = Date.parse(r.date + "T" + (r.time || "09:00")); if(!isNaN(t)) due=t; }
+  if(!title || due==null) return null;
+  const done = !!(r.done ?? r.completed ?? r.isDone);
+  return { id:String(r.id ?? uid()), title:title.slice(0,120), notes:String(r.notes ?? r.description ?? r.note ?? "").slice(0,1000),
+    due, done, doneAt: done ? (Number(r.doneAt) || Date.now()) : null, alerted: !!(r.alerted ?? r.notified ?? done), createdAt: Number(r.createdAt) || Date.now(),
+    xpAwarded: !!(r.xpAwarded ?? done), rank: normRank(r.rank) };
+}
+function loadLocalReminders(){
+  const current = LS.get(KEYS.reminders, null);
+  if(Array.isArray(current)) return current.map(normalizeReminder).filter(Boolean);
+  let imported = [];
+  if(LS.ok && !LS.get(KEYS.migrated,false)){
+    for(const k of LEGACY_REMINDER_KEYS){
+      const legacy = LS.get(k, null);
+      const arr = Array.isArray(legacy) ? legacy : (legacy && Array.isArray(legacy.reminders) ? legacy.reminders : null);
+      if(arr) imported.push(...arr.map(normalizeReminder).filter(Boolean));
+    }
+    LS.set(KEYS.migrated, true);
+  }
+  return imported;
+}
+const normRank = v => ["E","D","C","B","A","S"].includes(v) ? v : "";
+function normalizeQuest(q){
+  if(!q || !q.id || !q.title || !["main","side"].includes(q.type)) return null;
+  const due = Number(q.due);
+  return { id:String(q.id), title:String(q.title).slice(0,100), type:q.type, done:!!q.done, awarded:!!q.awarded, createdAt:Number(q.createdAt)||Date.now(),
+    desc:String(q.desc||"").slice(0,400), due: isFinite(due) && due>0 ? due : null, alerted: !!(q.alerted ?? (q.done || false)), rank: normRank(q.rank) };
+}
+const DEFAULT_GOALS = [
+  {title:"Morning exercise", target:1, unit:""},
+  {title:"Study session", target:60, unit:"min"},
+  {title:"Complete reminders", target:5, unit:"", auto:"reminders"},
+  {title:"Drink water", target:8, unit:"glasses"}
+];
+function normalizeGoal(g){
+  if(!g || !String(g.title||"").trim()) return null;
+  const target = Math.max(1, Math.min(100000, Math.round(Number(g.target)||1)));
+  return { id:String(g.id || uid()), title:String(g.title).trim().slice(0,60), target, unit:String(g.unit||"").trim().slice(0,12), auto: g.auto==="reminders" ? "reminders" : null };
+}
+const obj = v => (v && typeof v==="object" && !Array.isArray(v)) ? {...v} : {};
+function normalizeDaily(d, legacyQuests){
+  d = (d && typeof d==="object") ? d : null;
+  let goals = d && Array.isArray(d.goals) ? d.goals.map(normalizeGoal).filter(Boolean) : null;
+  if(!goals){
+    goals = DEFAULT_GOALS.map(normalizeGoal);
+    // v2 "daily" checkbox quests become one-step goals
+    for(const q of (legacyQuests||[])) if(q && q.type==="daily" && q.title && !goals.some(g=>g.title.toLowerCase()===String(q.title).toLowerCase())) goals.push(normalizeGoal({title:q.title, target:1}));
+  }
+  return {
+    goals, day: typeof d?.day==="string" ? d.day : dayKey(), progress: obj(d?.progress), awarded: obj(d?.awarded),
+    deadline: /^\d{2}:\d{2}$/.test(d?.deadline||"") ? d.deadline : "21:00",
+    remindBefore: [0,15,30,60,120].includes(Number(d?.remindBefore)) ? Number(d.remindBefore) : 30,
+    alertedPre: d?.alertedPre || null, alertedDue: d?.alertedDue || null, clearedDay: d?.clearedDay || null,
+    snoozeDay: d?.snoozeDay || null, snoozeUntil: Number(d?.snoozeUntil) || 0, snoozeN: Number(d?.snoozeN) || 0,
+    history: Array.isArray(d?.history) ? d.history.filter(h=>h && typeof h.day==="string").map(h=>({day:h.day, done:Number(h.done)||0, total:Number(h.total)||0})).slice(-60) : []
+  };
+}
+function normalizePlayer(p){
+  const xp = Number(p?.xp), last = Number(p?.lastLevel);
+  // lastLevel = highest level whose level-up was already shown; stops repeats after refresh or on another device
+  const st = obj(p?.stats), n = v => Math.max(0, Math.floor(Number(v)||0));
+  return { xp: isFinite(xp) && xp>0 ? Math.floor(xp) : 0, lastLevel: Number.isInteger(last) && last >= 1 ? last : null,
+    stats: { reminders:n(st.reminders), quests:n(st.quests), mains:n(st.mains), clears:n(st.clears) }, ach: obj(p?.ach), miles: obj(p?.miles), streakPaid: obj(p?.streakPaid) };
+}
+const LV_DEFAULTS = { repeat:true, reps:5, dur:1.8, msgDur:2.8, delay:0.3, spd:1, intensity:"high", flames:true, sound:true, vol:60, theme:"auto",
+  th:{ purple:10, red:20, gold:30, monarch:50 } };
+const LV_THEMES = ["blue","purple","red","gold","monarch","cyan","crimson","orange","electric"];
+const RANK_THEME = { E:"blue", D:"cyan", C:"crimson", B:"orange", A:"electric", S:"purple" };
+const ADMIN_DEFAULTS = { style:"level", award:"KAGE MONARK SYSTEM: AWARD GRANTED", crimsonFlames:true, rankImages:true };
+const THEME_IMG = { blue:"e", cyan:"d", crimson:"c", orange:"b", electric:"a", purple:"s" }; // one artwork per rank
+function normalizeAdmin(v){ v = (v && typeof v==="object") ? v : {}; return { style: v.style==="rank" ? "rank" : "level", award: typeof v.award==="string" ? v.award.replace(/\s+/g," ").trim().slice(0,40) : ADMIN_DEFAULTS.award, crimsonFlames: v.crimsonFlames !== false, rankImages: v.rankImages !== false }; }
+function normalizeLv(v){
+  v = obj(v); const d = LV_DEFAULTS, num = (x, lo, hi, def) => { x = Number(x); return isFinite(x) ? Math.min(hi, Math.max(lo, x)) : def; };
+  const th = obj(v.th);
+  let t = { purple: Math.round(num(th.purple,2,999,d.th.purple)), red: Math.round(num(th.red,3,999,d.th.red)),
+            gold: Math.round(num(th.gold,4,999,d.th.gold)), monarch: Math.round(num(th.monarch,5,999,d.th.monarch)) };
+  if(!(t.purple < t.red && t.red < t.gold && t.gold < t.monarch)) t = {...d.th};
+  return { repeat: v.repeat !== false, reps: [1,2,3,5,7,10].includes(Number(v.reps)) ? Number(v.reps) : d.reps,
+    dur: num(v.dur,.8,4,d.dur), msgDur: num(v.msgDur,1.5,8,d.msgDur), delay: num(v.delay,0,2,d.delay), spd: num(v.spd,.5,2,d.spd),
+    intensity: ["high","normal","low"].includes(v.intensity) ? v.intensity : d.intensity,
+    flames: v.flames !== false, sound: v.sound !== false, vol: Math.round(num(v.vol,0,100,d.vol)),
+    theme: v.theme==="auto" || LV_THEMES.includes(v.theme) ? v.theme : "auto", th: t };
+}
+function normalizeProfile(p){
+  p = obj(p);
+  const out = Object.assign({ name:"", voiceOn:true, voiceURI:"", rate:1, chime:true, sfx:true }, p);
+  out.cats = Object.assign({ reminder:true, daily:true, system:true }, obj(p.cats));
+  out.name = String(out.name||"").slice(0,24); out.rate = Math.min(1.6, Math.max(.6, Number(out.rate)||1));
+  out.lvl = normalizeLv(p.lvl);
+  return out;
+}
+function normalizeNotifs(a){
+  return (Array.isArray(a)?a:[]).filter(n=>n && n.id && n.kind).map(n=>({ id:String(n.id), kind:String(n.kind), title:String(n.title||"").slice(0,140),
+    msg:String(n.msg||"").slice(0,400), at:Number(n.at)||Date.now(), read:!!n.read, ref:n.ref?String(n.ref):null })).slice(0,60);
+}
+
+/* =========================================================
+   3. STATE
+   ========================================================= */
+const legacyQuests = LS.get(KEYS.quests, []) || [];
+const state = {
+  reminders: loadLocalReminders(),
+  quests: (Array.isArray(legacyQuests)?legacyQuests:[]).map(normalizeQuest).filter(Boolean),
+  daily: normalizeDaily(LS.get(KEYS.daily, null), legacyQuests),
+  player: normalizePlayer(LS.get(KEYS.player, {})),
+  profile: normalizeProfile(LS.get(KEYS.profile, {})),
+  notifs: normalizeNotifs(LS.get(KEYS.notifs, [])),
+  account: { mode:"checking", uid:null, name:"", avatar:"", email:null, owner:false },
+  admin: normalizeAdmin(null),
+  tab:"home", filter:"all", editingId:null, confirmDeleteId:null, spotId:null
+};
+
+/* =========================================================
+   4. PERSISTENCE — local mode (browser) or account mode (private synced docs)
+   ========================================================= */
+const DOC_KEYS = ["reminders","quests","daily","player","profile","notifs"];
+const Persist = (() => {
+  let mode = "local", db = null, userId = null;
+  const timers = {}, inflight = {}, dirty = {}, lastSeen = {}, unsubs = [];
+  let errShown = false;
+
+  const body = k => ({ reminders:{items:state.reminders}, quests:{items:state.quests}, notifs:{items:state.notifs},
+                       daily:state.daily, player:state.player, profile:state.profile })[k];
+  const localShape = k => ({ reminders:state.reminders, quests:state.quests, notifs:state.notifs, daily:state.daily, player:state.player, profile:state.profile })[k];
+  const path = k => `data/users/${userId}/${k}`;
+
+  function apply(k, data){
+    if(k==="reminders") state.reminders = (data.items||[]).map(normalizeReminder).filter(Boolean);
+    if(k==="quests")    state.quests    = (data.items||[]).map(normalizeQuest).filter(Boolean);
+    if(k==="notifs")    state.notifs    = normalizeNotifs(data.items);
+    if(k==="daily")     state.daily     = normalizeDaily(data);
+    if(k==="player")    state.player    = normalizePlayer(data);
+    if(k==="profile"){ const keepVoice = state.profile.voiceURI; state.profile = normalizeProfile(data); if(!state.profile.voiceURI) state.profile.voiceURI = keepVoice; }
+  }
+  function save(k){
+    if(mode === "local"){ if(LocalDB.ok) LocalDB.put(k, clone(localShape(k))); LS.set(KEYS[k], localShape(k)); Bg.sync(); return; }
+    dirty[k] = true; clearTimeout(timers[k]); timers[k] = setTimeout(()=>flush(k), 400); Bg.sync();
+  }
+  async function flush(k, attempt=0){
+    if(mode!=="cloud" || inflight[k] || !dirty[k]) return;
+    dirty[k] = false; inflight[k] = true;
+    const data = clone(body(k));
+    try{ await db.doc(path(k)).set(data); lastSeen[k] = JSON.stringify(data); syncState = "ok"; }
+    catch(e){
+      const code = e && e.code;
+      if((code==="unavailable" || !code) && attempt < 1){ inflight[k]=false; dirty[k]=true; setTimeout(()=>flush(k, attempt+1), 900+Math.random()*900); return; }
+      syncState = "err"; dirty[k] = true;
+      if(!errShown){ errShown = true; toast(code==="quota_exceeded" ? "Your Kage Monark storage is full. Clear old reminders or alerts." : "Couldn't sync to your account. Changes are kept on screen and will retry.", "err"); setTimeout(()=>errShown=false, 20000); }
+      setTimeout(()=>flush(k), 15000);
+    }
+    finally{ inflight[k] = false; renderDiagnostics(); if(dirty[k]) flush(k); }
+  }
+  async function attach(_db, _uid){
+    db = _db; userId = _uid;
+    const snaps = await Promise.all(DOC_KEYS.map(k => db.doc(path(k)).get().catch(()=>({exists:false}))));
+    const cloud = {}; snaps.forEach((s,i)=>{ if(s.exists) cloud[DOC_KEYS[i]] = clone(s.data()); });
+    const alreadyMerged = LS.get(KEYS.merged, null) === _uid;
+    const needWrite = new Set();
+    // Reminders + quests: account copy wins; this browser's items are added once (first sign-in here).
+    for(const k of ["reminders","quests"]){
+      const norm = k==="reminders" ? normalizeReminder : normalizeQuest;
+      if(cloud[k]){
+        const fromCloud = (cloud[k].items||[]).map(norm).filter(Boolean);
+        const ids = new Set(fromCloud.map(x=>x.id));
+        const extra = alreadyMerged ? [] : state[k].filter(x=>!ids.has(x.id));
+        state[k] = fromCloud.concat(extra); if(extra.length) needWrite.add(k);
+      } else if(!alreadyMerged || !state[k].length){ needWrite.add(k); } else { state[k] = []; needWrite.add(k); }
+    }
+    for(const k of ["daily","profile","notifs"]){
+      if(cloud[k]) apply(k, cloud[k]); else needWrite.add(k);
+    }
+    if(cloud.player){ const c = normalizePlayer(cloud.player); if(!alreadyMerged && state.player.xp > c.xp){ needWrite.add("player"); } else state.player = c; }
+    else needWrite.add("player");
+    const importedLocal = !alreadyMerged && (state.reminders.length || state.quests.length);
+    mode = "cloud"; LS.set(KEYS.merged, _uid);
+    for(const k of needWrite){ dirty[k] = true; flush(k); }
+    for(const k of DOC_KEYS){
+      unsubs.push(db.doc(path(k)).onSnapshot(s=>{
+        if(!s.exists || s.metadata.hasPendingWrites || dirty[k] || inflight[k]) return;
+        const json = JSON.stringify(s.data());
+        if(json === lastSeen[k]) return;
+        lastSeen[k] = json; apply(k, JSON.parse(json)); syncState = "ok";
+        if(entered) renderAll();
+      }, e=>{ syncState = "err"; renderDiagnostics(); }));
+    }
+    syncState = "ok";
+    return { importedLocal: !!importedLocal && !Object.keys(cloud).length };
+  }
+  async function loadLocal(){ // IndexedDB first; on the first run, move the localStorage data into it
+    if(!(await LocalDB.init())) return "localStorage";
+    const vals = await Promise.all(DOC_KEYS.map(k => LocalDB.get(k)));
+    if(vals.every(v => v === undefined)){ for(const k of DOC_KEYS) await LocalDB.put(k, clone(localShape(k))); return "migrated"; }
+    DOC_KEYS.forEach((k, i) => { const v = vals[i]; if(v === undefined) return; apply(k, Array.isArray(v) ? { items: v } : v); });
+    return "indexeddb";
+  }
+  async function wipe(){
+    if(mode==="cloud"){ for(const k of DOC_KEYS){ try{ await db.doc(path(k)).delete(); }catch{} } }
+    for(const k of Object.values(KEYS)) LS.del(k);
+    if(await LocalDB.init()) for(const k of DOC_KEYS) await LocalDB.del(k);
+    for(const k of LEGACY_REMINDER_KEYS) LS.del(k);
+    try{ for(const k of Object.keys(localStorage)) if(k.startsWith("jarvis.shadow.sysq.")) localStorage.removeItem(k); }catch{}
+  }
+  function detach(){ unsubs.splice(0).forEach(u=>{ try{u();}catch{} }); }
+  return { save, attach, wipe, detach, loadLocal, get mode(){ return mode; } };
+})();
+let syncState = "idle", storeMode = "account";
+const persist = k => Persist.save(k);
+
+/* =========================================================
+   4b. DEVICE DATABASE — IndexedDB (localStorage kept only as a fallback copy)
+   ========================================================= */
+const LocalDB = (() => {
+  let db = null, ok = false, tried = false;
+  function open(){
+    return new Promise(res => {
+      try{
+        const rq = indexedDB.open("kage-monark-system", 1);
+        rq.onupgradeneeded = () => rq.result.createObjectStore("kv");
+        rq.onsuccess = () => { db = rq.result; ok = true; res(true); };
+        rq.onerror = rq.onblocked = () => res(false);
+      }catch{ res(false); }
+    });
+  }
+  const get = k => new Promise(res => { try{ const r = db.transaction("kv").objectStore("kv").get(k); r.onsuccess = () => res(r.result); r.onerror = () => res(undefined); }catch{ res(undefined); } });
+  const put = (k, v) => new Promise(res => { try{ const t = db.transaction("kv","readwrite"); t.objectStore("kv").put(v, k); t.oncomplete = () => res(true); t.onerror = t.onabort = () => res(false); }catch{ res(false); } });
+  const del = k => new Promise(res => { try{ const t = db.transaction("kv","readwrite"); t.objectStore("kv").delete(k); t.oncomplete = () => res(true); t.onerror = () => res(false); }catch{ res(false); } });
+  async function init(){ if(!tried){ tried = true; await open(); } return ok; }
+  return { init, get, put, del, get ok(){ return ok; } };
+})();
+
+/* =========================================================
+   5. HELPERS
+   ========================================================= */
+const $ = (s, el=document) => el.querySelector(s);
+const $$ = (s, el=document) => [...el.querySelectorAll(s)];
+const fmtTime = t => new Date(t).toLocaleTimeString([], {hour:"2-digit", minute:"2-digit"});
+const fmtDate = t => new Date(t).toLocaleDateString([], {weekday:"short", day:"numeric", month:"short", year:"numeric"});
+const toInputDate = t => { const d=new Date(t); return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`; };
+const toInputTime = t => { const d=new Date(t); return `${pad(d.getHours())}:${pad(d.getMinutes())}`; };
+function relTime(t){
+  const diff = t - Date.now(), abs = Math.abs(diff), m = Math.round(abs/60000);
+  let s;
+  if(m < 1) return diff>0 ? "in under a minute" : "just now";
+  if(m < 60) s = `${m} min`;
+  else if(m < 1440){ const h=Math.floor(m/60), mm=m%60; s = `${h}h${mm?` ${mm}m`:""}`; }
+  else { const d = Math.round(m/1440); s = `${d} day${d>1?"s":""}`; }
+  return diff>0 ? `in ${s}` : `${s} ago`;
+}
+function el(tag, attrs={}, ...kids){
+  const n = document.createElement(tag);
+  for(const [k,v] of Object.entries(attrs)){
+    if(k==="class") n.className=v; else if(k==="text") n.textContent=v;
+    else if(k.startsWith("on")) n.addEventListener(k.slice(2), v);
+    else if(v!==false && v!=null) n.setAttribute(k, v===true?"":v);
+  }
+  for(const k of kids) if(k!=null) n.append(k);
+  return n;
+}
+function checkSvg(color="#fff"){ const s=document.createElementNS("http://www.w3.org/2000/svg","svg"); s.setAttribute("viewBox","0 0 24 24"); s.innerHTML=`<path d="M4 12l5 5L20 6" fill="none" stroke="${color}" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>`; return s; }
+function toast(msg, kind=""){
+  const box = $("#toasts");
+  const t = el("div", {class:`toast ${kind}`, role: kind==="err"?"alert":"status"}, el("span",{text:msg}));
+  box.append(t);
+  while(box.children.length > 4) box.firstChild.remove();
+  setTimeout(()=>{ t.classList.add("out"); setTimeout(()=>t.remove(), 320); }, kind==="err"?5200:3600);
+}
+const statusOf = r => r.done ? "done" : (r.due <= Date.now() ? "due" : "pending");
+const displayName = () => (state.profile.name || state.account.name || "").trim();
+
+/* =========================================================
+   6. SOUND (Web Audio, user-controlled)
+   ========================================================= */
+let audioCtx = null, liveOsc = [];
+function stopAllSound(){ liveOsc.splice(0).forEach(o=>{ try{ o.stop(); }catch{} }); if("speechSynthesis" in window) try{ speechSynthesis.cancel(); }catch{} }
+function tone(freqs, gap=.12, len=.5, vol=.12){
+  try{
+    audioCtx = audioCtx || new (window.AudioContext || window.webkitAudioContext)();
+    const t = audioCtx.currentTime;
+    freqs.forEach((f,i)=>{
+      const o = audioCtx.createOscillator(), g = audioCtx.createGain();
+      o.type="sine"; o.frequency.value=f; o.connect(g); g.connect(audioCtx.destination);
+      g.gain.setValueAtTime(0, t+i*gap); g.gain.linearRampToValueAtTime(vol, t+i*gap+.02); g.gain.exponentialRampToValueAtTime(.0001, t+i*gap+len);
+      o.start(t+i*gap); o.stop(t+i*gap+len+.05);
+      liveOsc.push(o); o.onended = () => { liveOsc = liveOsc.filter(x=>x!==o); };
+    });
+  }catch{}
+}
+const chime = () => { if(state.profile.chime) tone([659.25, 987.77, 1318.5]); };
+const sfx = kind => { if(!state.profile.sfx) return; if(kind==="complete") tone([880, 1320], .08, .25, .07); else if(kind==="level") tone([523, 659, 784, 1046], .1, .5, .09); else tone([1200], 0, .08, .04); };
+
+/* =========================================================
+   7. TABS
+   ========================================================= */
+const TABS = ["home","quests","alerts","profile","admin"];
+function setTab(t){
+  if(!TABS.includes(t) || (t === "admin" && !Admin.isOwner())) t = "home";
+  if(t === "admin") Admin.openStudio();
+  state.tab = t;
+  for(const v of $$("[data-view]")) v.hidden = v.dataset.view !== t;
+  for(const b of $$("[data-tab]")) b.setAttribute("aria-current", b.dataset.tab===t ? "page" : "false");
+  window.scrollTo({top:0, behavior:"instant" in window ? "instant" : "auto"});
+}
+document.addEventListener("click", e=>{
+  const b = e.target.closest("[data-tab],[data-goto]"); if(!b) return;
+  setTab(b.dataset.tab || b.dataset.goto); sfx("tap");
+});
+
+/* =========================================================
+   8. CLOCK + HEADER
+   ========================================================= */
+function tickClock(){
+  const now = new Date();
+  $("#clockTime").textContent = now.toLocaleTimeString([], {hour:"2-digit", minute:"2-digit", second:"2-digit"});
+  $("#clockDate").textContent = now.toLocaleDateString([], {weekday:"long", day:"numeric", month:"long", year:"numeric"});
+}
+function renderWelcome(){
+  const name = displayName();
+  $("#welcome").textContent = `WELCOME BACK, ${(name || "HUNTER").toUpperCase()}`;
+  if(!titleFlash) document.title = name ? `Kage Monark System · ${name}` : "Kage Monark System";
+}
+function renderNext(){
+  const next = state.reminders.filter(r=>!r.done && r.due > Date.now()).sort((a,b)=>a.due-b.due)[0];
+  const due = state.reminders.filter(r=>statusOf(r)==="due").length;
+  $("#nextUp").textContent = due ? `⟡ ${due} reminder${due>1?"s":""} due now` : next ? `Next: ${next.title} · ${relTime(next.due)}` : "No upcoming reminders";
+  $("#core").classList.toggle("alerting", due>0);
+}
+function setStat(id, text, s){ const n=$(id); n.textContent=text; n.dataset.s=s||""; }
+function renderChips(){
+  const a = state.account;
+  setStat("#chipAcct", a.mode==="cloud" ? "Claude account · synced" : "This device only", a.mode==="cloud" ? (syncState==="err"?"warn":"ok") : "warn");
+  const p = notifSupported ? Notification.permission : "unsupported";
+  setStat("#chipNotif", p==="granted" ? (notifFallback ? "Page alerts" : "Notifications on") : p==="denied" ? "Notifications blocked" : p==="unsupported" ? "Page alerts only" : "Notifications off", p==="granted"?"ok":p==="denied"?"bad":"warn");
+}
+
+/* =========================================================
+   9. REMINDERS
+   ========================================================= */
+const form = $("#remForm"), fTitle=$("#fTitle"), fDate=$("#fDate"), fTime=$("#fTime"), fNotes=$("#fNotes");
+function resetForm(){
+  state.editingId = null; form.reset();
+  const d = new Date(Date.now() + 10*60000); d.setSeconds(0,0); d.setMinutes(Math.ceil(d.getMinutes()/5)*5);
+  fDate.value = toInputDate(d); fTime.value = toInputTime(d);
+  $("#formTitle").textContent = "NEW REMINDER"; $("#btnSave").textContent = "Create Reminder"; $("#btnCancelEdit").hidden = true;
+  clearErrors();
+}
+function clearErrors(){ for(const i of [fTitle,fDate,fTime]) i.classList.remove("bad"); $("#eTitle").textContent=""; $("#eWhen").textContent=""; }
+form.addEventListener("submit", e => {
+  e.preventDefault(); clearErrors();
+  const title = fTitle.value.trim(), notes = fNotes.value.trim();
+  let ok = true;
+  if(!title){ fTitle.classList.add("bad"); $("#eTitle").textContent = "Give the reminder a title."; ok=false; }
+  if(!fDate.value || !fTime.value){ if(!fDate.value) fDate.classList.add("bad"); if(!fTime.value) fTime.classList.add("bad"); $("#eWhen").textContent = "Choose both a date and a time."; ok=false; }
+  let due = NaN;
+  if(ok){ const [y,mo,d] = fDate.value.split("-").map(Number); const [h,mi] = fTime.value.split(":").map(Number); due = new Date(y,mo-1,d,h,mi,0,0).getTime(); }
+  if(ok && isNaN(due)){ $("#eWhen").textContent = "That date or time isn't valid."; ok=false; }
+  const editing = state.editingId && state.reminders.find(r=>r.id===state.editingId);
+  if(ok && !editing && due < Date.now() - 30000){ fDate.classList.add("bad"); fTime.classList.add("bad"); $("#eWhen").textContent = "That time has already passed. Pick a future time."; ok=false; }
+  if(!ok){ (fTitle.classList.contains("bad")?fTitle:fDate).focus(); return; }
+  const rank = normRank($("#fRank").value);
+  if(editing){
+    const timeChanged = editing.due !== due;
+    Object.assign(editing, {title, notes, due, rank});
+    if(timeChanged && !editing.done && due > Date.now()) editing.alerted = false;
+    persist("reminders"); toast(`Reminder updated: ${title}`);
+  } else {
+    state.reminders.push({ id: uid(), title, notes, due, done:false, doneAt:null, alerted:false, createdAt:Date.now(), xpAwarded:false, rank });
+    persist("reminders"); toast(`Reminder created for ${fmtTime(due)}, ${fmtDate(due)}.`); sfx("tap");
+  }
+  resetForm(); renderAll(); fTitle.focus();
+});
+$("#btnCancelEdit").addEventListener("click", ()=>{ resetForm(); renderReminders(); });
+function startEdit(id){
+  const r = state.reminders.find(x=>x.id===id); if(!r) return;
+  setTab("home");
+  state.editingId = id; state.confirmDeleteId = null;
+  fTitle.value = r.title; fNotes.value = r.notes || ""; fDate.value = toInputDate(r.due); fTime.value = toInputTime(r.due); $("#fRank").value = r.rank || "";
+  $("#formTitle").textContent = "EDIT REMINDER"; $("#btnSave").textContent = "Save Changes"; $("#btnCancelEdit").hidden = false;
+  clearErrors(); renderReminders();
+  form.scrollIntoView({behavior:"smooth", block:"start"}); setTimeout(()=>fTitle.focus({preventScroll:true}), 300);
+}
+function setDone(id, done){
+  const r = state.reminders.find(x=>x.id===id); if(!r) return;
+  r.done = done; r.doneAt = done ? Date.now() : null;
+  if(done) r.alerted = true; else r.alerted = r.due <= Date.now();
+  let xp = 0;
+  if(done && !r.xpAwarded){ r.xpAwarded = true; xp = REMINDER_XP; state.player.stats.reminders++; }
+  persist("reminders");
+  if(!done) toast(`Reopened: ${r.title}`);
+  else if(xp){ logNotif("system", `Task completed: ${r.title}`, `+${xp} XP`);
+    grant({ id:`task:${r.id}`, type:"task", kicker:"SYSTEM MESSAGE", title:"TASK COMPLETED", name:r.title, sub:"EXPERIENCE ACQUIRED", reward:`+${xp} XP` }, xp); }
+  else toast(`Completed: ${r.title} (experience already acquired)`);
+  checkGoalAwards(); checkAchievements(); renderAll();
+}
+function removeReminder(id){
+  const i = state.reminders.findIndex(x=>x.id===id); if(i<0) return;
+  const [r] = state.reminders.splice(i,1);
+  if(state.editingId===id) resetForm();
+  state.confirmDeleteId = null; persist("reminders"); toast(`Deleted: ${r.title}`); renderAll();
+}
+function renderReminders(){
+  const list = $("#remList"); list.textContent = "";
+  const sorted = [...state.reminders].sort((a,b)=>a.due-b.due || a.createdAt-b.createdAt);
+  const counts = {all:sorted.length, pending:0, due:0, done:0};
+  for(const r of sorted) counts[statusOf(r)]++;
+  for(const [k,v] of Object.entries(counts)) $(`[data-c="${k}"]`).textContent = v;
+  const shown = sorted.filter(r => state.filter==="all" || statusOf(r)===state.filter);
+  if(!shown.length){
+    const msg = {all:"No reminders yet. Create your first one above.", pending:"Nothing pending.", due:"Nothing due or overdue.", done:"No completed reminders."}[state.filter];
+    list.append(el("div",{class:"empty"}, el("b",{text:"// NO ENTRIES"}), msg)); return;
+  }
+  for(const r of shown){
+    const st = statusOf(r);
+    const label = st==="due" ? (Date.now()-r.due > 60*60000 ? "OVERDUE" : "DUE") : st==="done" ? "COMPLETED" : "PENDING";
+    const acts = state.confirmDeleteId === r.id
+      ? el("div",{class:"confirm-row"}, "Delete?",
+          el("button",{class:"btn sm danger", type:"button", onclick:()=>removeReminder(r.id)}, "Yes, delete"),
+          el("button",{class:"btn sm ghost", type:"button", onclick:()=>{state.confirmDeleteId=null; renderReminders();}}, "Keep"))
+      : el("div",{class:"acts"},
+          r.done ? el("button",{class:"btn sm", type:"button", onclick:()=>setDone(r.id,false), "aria-label":`Reopen ${r.title}`}, "Reopen")
+                 : el("button",{class:"btn sm on", type:"button", onclick:()=>setDone(r.id,true), "aria-label":`Complete ${r.title}`}, "Complete"),
+          el("button",{class:"btn sm", type:"button", onclick:()=>startEdit(r.id), "aria-label":`Edit ${r.title}`}, "Edit"),
+          el("button",{class:"btn sm danger", type:"button", onclick:()=>{state.confirmDeleteId=r.id; renderReminders();}, "aria-label":`Delete ${r.title}`}, "Delete"));
+    list.append(el("article",{class:`rem ${st}${state.editingId===r.id?" editing":""}${state.spotId===r.id?" spot":""}`, "data-id":r.id},
+      el("div",{class:"mark","aria-hidden":"true"}),
+      el("div",{}, el("h3",{text:r.title}),
+        el("div",{class:"meta"}, el("span",{class:"status",text:label}), el("span",{text:`${fmtDate(r.due)} · ${fmtTime(r.due)}`}), r.done ? null : el("span",{class:"rel",text:relTime(r.due)})),
+        r.notes ? el("div",{class:"notes",text:r.notes}) : null),
+      acts));
+  }
+}
+$("#filters").addEventListener("click", e=>{
+  const b = e.target.closest("[data-f]"); if(!b) return;
+  state.filter = b.dataset.f; for(const c of $("#filters").children) c.setAttribute("aria-pressed", String(c===b)); renderReminders();
+});
+$("#btnClearDone").addEventListener("click", ()=>{
+  const n = state.reminders.filter(r=>r.done).length;
+  if(!n){ toast("No completed reminders to clear."); return; }
+  const b = $("#btnClearDone");
+  if(b.dataset.armed){ state.reminders = state.reminders.filter(r=>!r.done); persist("reminders"); toast(`Cleared ${n} completed reminder${n>1?"s":""}.`); delete b.dataset.armed; b.textContent="Clear Completed"; renderAll(); }
+  else { b.dataset.armed="1"; b.textContent=`Confirm clear (${n})`; setTimeout(()=>{ delete b.dataset.armed; b.textContent="Clear Completed"; }, 4000); }
+});
+
+/* =========================================================
+   10. XP + LEVELS
+   ========================================================= */
+const QUEST_XP = { daily:10, main:50, side:20 };
+const RANKS = [[30,"S"],[20,"A"],[15,"B"],[10,"C"],[5,"D"],[1,"E"]];
+const xpToNext = lvl => 100 + (lvl-1)*50;
+function levelInfo(xp){
+  let lvl = 1, rem = xp;
+  while(rem >= xpToNext(lvl)){ rem -= xpToNext(lvl); lvl++; }
+  return { lvl, into: rem, need: xpToNext(lvl), rank: RANKS.find(([min])=>lvl>=min)[1] };
+}
+const xpForLevel = lvl => { let t = 0; for(let i=1;i<lvl;i++) t += xpToNext(i); return t; };
+function themeFor(lvl, s = state.profile.lvl){
+  if(s.theme !== "auto") return s.theme;
+  if(state.admin.style === "rank") return RANK_THEME[RANKS.find(([min])=>lvl>=min)[1]];
+  const t = s.th;
+  return lvl >= t.monarch ? "monarch" : lvl >= t.gold ? "gold" : lvl >= t.red ? "red" : lvl >= t.purple ? "purple" : "blue";
+}
+function renderPlayer(){
+  const {lvl, into, need, rank} = levelInfo(state.player.xp);
+  $("#rankBadge").textContent = `${rank}-RANK · LV ${lvl}`;
+  $("#rankBadge").dataset.lv = themeFor(lvl);
+  // home hero shows the current rank's artwork in Kage Monark rank style
+  if(state.admin.rankImages) $("#hero").dataset.rankImg = rank.toLowerCase(); else delete $("#hero").dataset.rankImg;
+  const pct = Math.round(into/need*100);
+  $("#xpfill").style.width = pct + "%"; $("#xpbar").setAttribute("aria-valuenow", pct);
+  $("#xptext").textContent = `${into} / ${need} XP`; $("#totalXp").textContent = `TOTAL ${state.player.xp} XP`;
+}
+/* =========================================================
+   10a. REWARDS — XP is granted only by genuine, once-only events.
+   Every grant queues its System Message FIRST, then adds XP, so the
+   order on screen is: reward → level up → rank promotion → milestone.
+   ========================================================= */
+const REMINDER_XP = 5, DAILY_CLEAR_BONUS = 20, STREAK_REWARD = 100;
+const ACHIEVEMENTS = [
+  { id:"awakening",   name:"The Awakening",       desc:"Clear your first Main or Side quest",            xp:20, test:(s)=>s.quests>=1 },
+  { id:"first-clear", name:"First Clear",         desc:"Clear the daily quest for the first time",       xp:20, test:(s)=>s.clears>=1 },
+  { id:"taskmaster",  name:"Taskmaster",          desc:"Complete 10 reminders",                          xp:30, test:(s)=>s.reminders>=10 },
+  { id:"vanguard",    name:"Vanguard of Will",    desc:"Clear 5 Main quests",                            xp:50, test:(s)=>s.mains>=5 },
+  { id:"discipline3", name:"Unbroken Discipline", desc:"Clear the daily quest 3 days in a row",          xp:30, test:(s,st)=>st>=3 },
+  { id:"discipline7", name:"Shadow of Resolve",   desc:"Clear the daily quest 7 days in a row",          xp:70, test:(s,st)=>st>=7 }
+];
+const MILESTONES = [
+  { id:"xp1000",  xp:1000,  title:"Awakened Hunter" },
+  { id:"xp5000",  xp:5000,  title:"Shadow Vanguard" },
+  { id:"xp10000", xp:10000, title:"Knight of the Abyss" },
+  { id:"xp25000", xp:25000, title:"Shadow Commander" },
+  { id:"xp50000", xp:50000, title:"Heir of the Monarch" }
+];
+const currentTitle = () => { let t = ""; for(const m of MILESTONES) if(state.player.miles[m.id]) t = m.title; return t; };
+const awardsOn = () => state.profile.cats.system;
+function grant(msg, xp){
+  if(awardsOn()) SysMsg.push(msg);
+  if(xp > 0) addXp(xp);
+}
+function checkAchievements(){
+  const p = state.player, streak = currentStreak();
+  for(const a of ACHIEVEMENTS){
+    if(p.ach[a.id] || !a.test(p.stats, streak)) continue;
+    p.ach[a.id] = Date.now(); persist("player");
+    if(awardsOn()) logNotif("system", `Achievement unlocked: ${a.name}`, `${a.desc} · +${a.xp} XP`);
+    grant({ id:`ach:${a.id}`, type:"achievement", kicker:"SYSTEM MESSAGE", title:"ACHIEVEMENT UNLOCKED", name:a.name, detail:a.desc,
+            sub:"REWARD ACQUIRED", reward:`+${a.xp} XP`, voice:`Achievement unlocked. ${a.name}.` }, a.xp);
+  }
+}
+function checkMilestones(silent){
+  const p = state.player;
+  for(const m of MILESTONES){
+    if(p.miles[m.id] || p.xp < m.xp) continue;
+    p.miles[m.id] = Date.now(); persist("player");
+    if(silent) continue;
+    if(awardsOn()){
+      logNotif("system", `Milestone achieved: ${m.xp.toLocaleString()} XP`, `Title acquired: ${m.title}`);
+      SysMsg.push({ id:`mile:${m.id}`, type:"milestone", kicker:"SYSTEM MESSAGE", title:"MILESTONE ACHIEVED", name:`${m.xp.toLocaleString()} TOTAL EXPERIENCE`,
+        sub:"REWARD ACQUIRED", reward:`TITLE: ${m.title.toUpperCase()}`, voice:`Milestone achieved. Title acquired: ${m.title}.` });
+    }
+  }
+  renderPlayer();
+}
+function addXp(n){
+  if(!(n > 0)) return;
+  const beforeLvl = levelInfo(state.player.xp).lvl;
+  state.player.xp += n;
+  const afterLvl = levelInfo(state.player.xp).lvl;
+  const shown = state.player.lastLevel ?? beforeLvl;
+  let ev = null;
+  if(afterLvl > beforeLvl && afterLvl > shown){
+    ev = { from: Math.max(beforeLvl, shown), to: afterLvl, gain: n, total: state.player.xp };
+    state.player.lastLevel = afterLvl;          // saved with the XP: a refresh can never replay it
+  } else if(state.player.lastLevel == null) state.player.lastLevel = afterLvl;
+  persist("player"); renderPlayer();
+  if(ev) levelUp(ev);
+  checkMilestones(false);
+}
+function syncLastLevel(){ // first run / imports: treat the current level and passed milestones as already seen
+  const lvl = levelInfo(state.player.xp).lvl;
+  if(state.player.lastLevel !== lvl){ state.player.lastLevel = lvl; persist("player"); }
+  checkMilestones(true);
+}
+function levelUp(ev){
+  const rankBefore = levelInfo(xpForLevel(ev.from)).rank, {rank} = levelInfo(state.player.xp);
+  logNotif("system", `Level up: level ${ev.to}`, `+${ev.gain} XP · total ${ev.total} XP`);
+  SysMsg.push({ id:`lvl:${ev.to}`, type:"level", kicker:"SYSTEM MESSAGE", title:"LEVEL UP", levels:{from:ev.from, to:ev.to},
+    sub:"YOUR POWER HAS INCREASED", gain:ev.gain, total:ev.total, voice:`Level up. Level ${ev.to} reached. Your power has increased.` });
+  if(rank !== rankBefore){
+    logNotif("system", `Rank promotion: ${rank}-Rank`, `Previous rank: ${rankBefore}-Rank`);
+    SysMsg.push({ id:`rank:${rank}`, type:"rank", kicker:"SYSTEM MESSAGE", title:"RANK PROMOTION", ranks:{from:`${rankBefore}-RANK`, to:`${rank}-RANK`},
+      level: ev.to, voice:`Rank promotion. You are now ${rank} rank.` });
+  }
+}
+
+/* =========================================================
+   10b. SHADOW SYSTEM MESSAGE — ONE reusable panel for every message.
+   Queue is saved per device (survives refresh, never duplicates).
+   ========================================================= */
+const SysMsg = (() => {
+  const dlg = $("#lvDlg"), stage = $("#lvStage"), canvas = $("#lvEmbers"), ctx = canvas.getContext("2d");
+  const THEME_NAME = { blue:"Blue Shadow Energy", purple:"Royal Purple Flame", red:"Crimson Energy", gold:"Black-Gold Monarch", monarch:"Shadow Monarch Aura",
+    cyan:"Cyan Current", crimson:"Blood-Red Monarch Flame", orange:"Orange Ember", electric:"Electric Storm" };
+  const ALERT_TYPES = new Set(["reminder","daily-pre","daily-due","warning"]);
+  const reduceMQ = matchMedia("(prefers-reduced-motion: reduce)");
+  let Q = { items:[], seen:[], paused:false }, storeKey = null;
+  let playing = false, current = null, endNow = null, wakers = [], raf = null, embers = [];
+
+  /* ---- persistence of the pending queue (per device, per account) ---- */
+  const save = () => { if(storeKey) LS.set(storeKey, { items:Q.items.slice(0,40), seen:Q.seen.slice(-300), paused:Q.paused }); renderResume(); };
+  function restore(accountId){
+    storeKey = `jarvis.shadow.sysq.v1:${accountId || "local"}`;
+    const v = LS.get(storeKey, null);
+    Q = { items: Array.isArray(v?.items) ? v.items.filter(m=>m && m.id && m.type) : [], seen: Array.isArray(v?.seen) ? v.seen : [], paused: !!v?.paused };
+    Q.items = Q.items.filter(stillValid);
+    save();
+    if(Q.items.length && !Q.paused) setTimeout(()=>run(), 1400);
+  }
+  function stillValid(m){ // drop queued alerts whose subject no longer needs attention
+    if(m.type==="reminder"){ const list = m.kind === "quest" ? state.quests : state.reminders; const r = list.find(x=>x.id===m.ref); return !!r && !r.done; }
+    if(m.type==="daily-pre" || m.type==="daily-due") return m.day === state.daily.day && remainingGoals().length > 0;
+    return true;
+  }
+  function push(m){
+    if(!m || !m.id) return;
+    m.at = m.at || Date.now();
+    if(!m.preview){
+      if(Q.seen.includes(m.id) || Q.items.some(x=>x.id===m.id) || current?.id===m.id) return;
+      Q.items.push(m); save();
+    } else Q.items.unshift(m);
+    // a closed (paused) queue still lets real alerts through: a due reminder must not wait behind "Resume"
+    if(ALERT_TYPES.has(m.type) && !m.preview){ Q.paused = false; save(); }
+    if(!playing && (!Q.paused || m.preview)) run(); else renderResume();
+  }
+
+  /* ---- flames (built once, reused) ---- */
+  function fill(row, n, big){
+    row.textContent = "";
+    for(let i=0;i<n;i++){
+      const t = document.createElement("i");
+      t.style.setProperty("--t", (0.7 + Math.random()*0.6).toFixed(2) + "s");
+      t.style.setProperty("--dl", (-Math.random()*1.2).toFixed(2) + "s");
+      t.style.setProperty("--sk", ((Math.random()*10)-5).toFixed(1) + "deg");
+      if(big) t.style.height = (70 + Math.random()*30) + "%";
+      row.append(t);
+    }
+  }
+  fill($(".lv-f-top", dlg), 14); fill($(".lv-f-bottom", dlg), 14); fill($(".lv-core", dlg), 7, true);
+
+  /* ---- timing helpers (cancellable) ---- */
+  const wait = ms => new Promise(res => { if(endNow) return res(); const id = setTimeout(done, ms); function done(){ clearTimeout(id); wakers = wakers.filter(w=>w!==done); res(); } wakers.push(done); });
+  const forever = () => new Promise(res => { if(endNow) return res(); wakers.push(res); });
+  const nextFrame = () => new Promise(r => requestAnimationFrame(()=>r()));
+  function end(how){ if(!current) return; endNow = how; wakers.splice(0).forEach(w=>w()); }
+
+  /* ---- look ---- */
+  function applyTheme(theme, s, m){
+    dlg.classList.remove(...LV_THEMES.map(t=>"t-"+t));
+    dlg.classList.add("t-"+theme);
+    const low = s.intensity==="low" || reduceMQ.matches;
+    dlg.classList.toggle("low", low);
+    dlg.classList.toggle("noflames", !s.flames);
+    dlg.classList.toggle("calm", m.type !== "level");
+    dlg.classList.toggle("is-warning", m.type==="warning" || m.type==="daily-due" || (m.type==="reminder" && m.missed));
+    dlg.classList.toggle("crimson-full", theme==="crimson" && state.admin.crimsonFlames);
+    const img = state.admin.rankImages && s.theme==="auto" ? (m.qrank || levelInfo(state.player.xp).rank).toLowerCase() : null;
+    if(img) dlg.dataset.rankImg = img; else delete dlg.dataset.rankImg;
+    dlg.style.setProperty("--spd", s.spd);
+  }
+  function show(id, on){ $(id).hidden = !on; }
+  function fillText(m){
+    const p2 = n => String(n).padStart(2,"0");
+    $("#smKicker").textContent = m.kicker || "SYSTEM MESSAGE";
+    $("#smTitle").textContent = m.title || "";
+    show("#smLevels", !!m.levels);
+    if(m.levels){ $("#lvFrom").textContent = `LEVEL ${p2(m.levels.from)}`; $("#lvTo").textContent = `LEVEL ${p2(m.levels.to)}`; }
+    show("#smName", !!m.name); $("#smName").textContent = m.name || "";
+    show("#smRanks", !!m.ranks); if(m.ranks){ $("#smRankFrom").textContent = m.ranks.from; $("#smRankTo").textContent = m.ranks.to; }
+    show("#smSub", !!m.sub); $("#smSub").textContent = m.sub || "";
+    show("#smReward", !!m.reward); $("#smReward").textContent = m.reward || "";
+    const awardLine = !ALERT_TYPES.has(m.type) && state.admin.award ? state.admin.award : "";
+    show("#smAwardLine", !!awardLine); $("#smAwardLine").textContent = awardLine;
+    show("#smDetail", !!m.detail); $("#smDetail").textContent = m.detail || "";
+    const withStats = m.type === "level";
+    show("#smStats", withStats); show("#lvBarWrap", withStats || ["quest","task","objective","daily","achievement","special"].includes(m.type));
+    const info = levelInfo(m.total ?? state.player.xp);
+    if(withStats){ $("#lvGain").textContent = `+${m.gain}`; $("#lvTotal").textContent = Number(m.total).toLocaleString(); $("#lvNext").textContent = `${info.into} / ${info.need}`; }
+    const pct = Math.round(info.into/info.need*100); $("#lvBar").style.width = pct + "%"; $("#lvBarWrap").setAttribute("aria-valuenow", pct);
+    const meta = $("#smMeta"); meta.textContent = "";
+    for(const [k,v] of (m.meta||[])) meta.append(el("dt",{text:k}), el("dd",{text:v}));
+    show("#smMeta", !!(m.meta && m.meta.length));
+    $("#lvPreviewTag").hidden = !m.preview;
+    // actions for alert messages (computed from type: queue items stay plain data)
+    const acts = $("#smActs"); acts.textContent = "";
+    if(m.type==="reminder" && !m.preview){
+      acts.append(el("button",{class:"qi-btn main", type:"button", onclick:()=>act("done")}, "COMPLETE QUEST"),
+                  el("button",{class:"qi-btn", type:"button", onclick:()=>act("snooze")}, "SNOOZE 10 MIN"),
+                  el("button",{class:"qi-btn", type:"button", onclick:()=>act("dismiss")}, "DISMISS"),
+                  el("button",{class:"qi-btn ghost", type:"button", onclick:()=>act("open")}, "OPEN"));
+    } else if((m.type==="daily-pre" || m.type==="daily-due" || m.type==="warning") && !m.preview){
+      acts.append(el("button",{class:"qi-btn main", type:"button", onclick:()=>act("quests")}, "OPEN QUEST"),
+                  el("button",{class:"qi-btn", type:"button", onclick:()=>act("snooze")}, "SNOOZE 10 MIN"),
+                  el("button",{class:"qi-btn", type:"button", onclick:()=>act("dismiss")}, "DISMISS"));
+    }
+    show("#smActs", !!acts.children.length);
+    $("#smClose").hidden = ALERT_TYPES.has(m.type) && !m.preview;   // alerts use DISMISS; CLOSE pauses award messages
+  }
+  function act(what){ handleAlertAction(current, what); }
+  function handleAlertAction(m, what){
+    if(!m) return;
+    const isQuest = m.kind === "quest", list = isQuest ? state.quests : state.reminders, item = list.find(x=>x.id===m.ref);
+    if(what==="done"){
+      if(current === m) end("next");
+      if(item && !item.done){ if(isQuest) completeQuest(item.id); else setDone(item.id, true); }
+    } else if(what==="snooze"){
+      if(m.type==="daily-pre" || m.type==="daily-due"){
+        const d = state.daily, today = dayKey();
+        d.snoozeN = (d.snoozeDay === today ? (d.snoozeN||0) : 0) + 1; d.snoozeDay = today; d.snoozeUntil = Date.now() + 10*60000;
+        if(m.type==="daily-pre") d.alertedPre = null; else d.alertedDue = null;
+        persist("daily"); toast(`Daily quest alert snoozed until ${fmtTime(d.snoozeUntil)}.`);
+      } else if(item){
+        item.due = Date.now() + 10*60000; item.alerted = false; persist(isQuest ? "quests" : "reminders");
+        toast(`Snoozed until ${fmtTime(item.due)}.`); renderAll();
+      }
+      if(current === m) end("next");
+      Bg.sync();
+    } else if(what==="dismiss"){
+      if(current === m) end("next");             // stays pending in the log; it will not alert again
+      if(m.nid) markRead(m.nid);
+    } else if(what==="open"){
+      if(current === m) end("close");
+      if(isQuest){ setTab("quests"); setTimeout(()=>$(`.quest[data-id="${m.ref}"]`)?.scrollIntoView({behavior:"smooth", block:"center"}), 80); }
+      else openFromNotif({id:m.nid, kind:"reminder", ref:m.ref});
+    } else if(what==="quests"){ if(current === m) end("close"); setTab("quests"); }
+  }
+
+  /* ---- sound: restrained, stopped on close ---- */
+  function sound(m, transform, s){
+    if(ALERT_TYPES.has(m.type)){ if(m.type==="warning" || m.type==="daily-due" || m.missed) { if(s.sound) tone([392, 294, 196], .16, .7, .08*(s.vol/100)); } else chime(); return; }
+    if(!s.sound || !s.vol) return;
+    const v = 0.13 * (s.vol/100);
+    if(transform) tone([98, 147, 196, 294, 392, 587], .1, 1.1, v);
+    else if(m.type==="level") tone([196, 262, 330, 392, 523], .1/s.spd, .7, v);
+    else if(m.type==="rank") tone([147, 220, 294, 440], .12, .8, v);
+    else tone([220, 330, 440], .09, .55, v*.8);
+  }
+
+  /* ---- energy particles (canvas), off in Low / reduced motion ---- */
+  function startEmbers(s, m){
+    stopEmbers();
+    if(s.intensity==="low" || reduceMQ.matches) return;
+    const r = canvas.getBoundingClientRect(), dpr = Math.min(devicePixelRatio||1, 2);
+    canvas.width = r.width*dpr; canvas.height = r.height*dpr; ctx.setTransform(dpr,0,0,dpr,0,0);
+    const cs = getComputedStyle(dlg);
+    const cols = dlg.classList.contains("t-monarch") ? ["#3fe0ff","#9b5cff","#6b3cff","#e8f6ff"] : [cs.getPropertyValue("--fa").trim() || cs.getPropertyValue("--a").trim(), cs.getPropertyValue("--c").trim()];
+    const n = m.type==="level" ? (s.intensity==="high" ? 48 : 24) : (s.intensity==="high" ? 22 : 12), W = r.width, H = r.height;
+    embers = Array.from({length:n}, () => ({ x: Math.random()*W, y: H*0.4 + Math.random()*H*0.6, r: Math.random()*1.8+.5, vy: -(Math.random()*1+.3)*s.spd, vx:(Math.random()-.5)*.4, a: Math.random()*.5+.35, c: cols[Math.floor(Math.random()*cols.length)] }));
+    let last = 0;
+    const loop = t => {
+      if(t - last > 33){ last = t; ctx.clearRect(0,0,W,H);
+        for(const p of embers){
+          p.x += p.vx; p.y += p.vy; p.a -= .006;
+          if(p.y < -6 || p.a <= 0){ p.y = H - Math.random()*40; p.x = Math.random()*W; p.a = Math.random()*.5+.35; }
+          ctx.globalAlpha = Math.max(0, p.a); ctx.fillStyle = p.c; ctx.shadowColor = p.c; ctx.shadowBlur = 10;
+          ctx.beginPath(); ctx.arc(p.x, p.y, p.r, 0, Math.PI*2); ctx.fill();
+        }
+        ctx.globalAlpha = 1; }
+      raf = requestAnimationFrame(loop);
+    };
+    raf = requestAnimationFrame(loop);
+  }
+  function stopEmbers(){ if(raf){ cancelAnimationFrame(raf); raf = null; } ctx.clearRect(0,0,canvas.width,canvas.height); }
+
+  async function appear(m, transform, fromTheme, toTheme, s, intense){
+    stage.classList.remove("lv-show","lv-hide"); void stage.offsetWidth;
+    dlg.classList.remove("transforming","intense");
+    if(transform) applyTheme(fromTheme, s, m);
+    stage.classList.add("lv-show");
+    await nextFrame(); startEmbers(s, m);
+    if(transform){
+      await wait(550 / s.spd); if(endNow) return;
+      applyTheme(toTheme, s, m); void dlg.offsetWidth; dlg.classList.add("transforming"); dlg.classList.toggle("intense", !!intense);
+      sound(m, true, s); startEmbers(s, m);
+    } else sound(m, false, s);
+  }
+  async function disappear(s){ stage.classList.remove("lv-show"); stage.classList.add("lv-hide"); await wait(330 / s.spd); stopEmbers(); }
+
+  function finish(m){ // message handled: never shown again on this device
+    if(m.preview) return;
+    Q.items = Q.items.filter(x=>x.id!==m.id);
+    if(!Q.seen.includes(m.id)) Q.seen.push(m.id);
+    if(m.nid) markRead(m.nid);
+    save();
+  }
+  async function run(){
+    if(playing) return;
+    playing = true;
+    try{
+      while(true){
+        const m = Q.items.find(x=>x.preview) || Q.items.find(x=>!x.preview);
+        if(!m || (Q.paused && !m.preview)) break;
+        if(m.preview) Q.items = Q.items.filter(x=>x!==m);
+        if(!stillValid(m)){ finish(m); continue; }
+        current = m; endNow = null;
+        const s = state.profile.lvl, isLevel = m.type==="level", sticky = ALERT_TYPES.has(m.type) && !m.preview;
+        const reps = isLevel && s.repeat ? s.reps : 1;
+        const lvlNow = m.levels ? m.levels.to : (m.level || levelInfo(state.player.xp).lvl);
+        const rankTheme = m.qrank && s.theme === "auto" ? RANK_THEME[m.qrank] : null;   // a ranked quest burns in its rank colour (C-Rank = crimson)
+        const tFrom = rankTheme || (m.levels ? themeFor(m.levels.from, s) : themeFor(lvlNow, s)), tTo = rankTheme || themeFor(lvlNow, s);
+        const transform = isLevel && tFrom !== tTo;
+        applyTheme(tTo, s, m); fillText(m);
+        try{ if(!dlg.open) dlg.showModal(); }catch{ dlg.setAttribute("open",""); }
+        $("#smClose").focus({preventScroll:true});
+        if(sticky){ sendNotification(m.notifTitle || `${m.kicker} · ${m.title}`, m.notifBody || m.name || "", m.id, m.ref ? { kind:m.kind, ref:m.ref } : null); startTitleFlash(); }
+        if(m.voice) setTimeout(()=>{ if(current===m && !endNow) speak(m.voice); }, ALERT_TYPES.has(m.type) && state.profile.chime ? 650 : 250);
+        for(let i=0; i<reps && !endNow; i++){
+          $("#lvCount").textContent = reps>1 ? `${i+1} / ${reps}` : "";
+          const left = Q.items.filter(x=>x!==m && !x.preview).length;
+          $("#smQueue").textContent = left ? `${left} MORE` : "";
+          $("#lvSkip").hidden = sticky;
+          await appear(m, transform && i===0, tFrom, tTo, s, transform);
+          if(sticky) await forever(); else await wait((isLevel ? s.dur : s.msgDur) * 1000);
+          if(endNow) break;
+          await disappear(s);
+          if(i < reps-1) await wait(s.delay * 1000);
+        }
+        // stop every sound and effect of this message
+        stopAllSound(); stopEmbers(); stopTitleFlash();
+        stage.classList.remove("lv-show","lv-hide"); dlg.classList.remove("transforming","intense");
+        const how = endNow; current = null; endNow = null;
+        finish(m);
+        if(how === "close"){ if(Q.items.some(x=>!x.preview)){ Q.paused = true; save(); } break; }
+      }
+    } finally {
+      if(dlg.open) dlg.close();
+      playing = false; current = null; renderResume();
+    }
+  }
+  function renderResume(){
+    const b = $("#smResume"); if(!b) return;
+    const n = Q.items.filter(x=>!x.preview).length;
+    b.hidden = !(entered && Q.paused && n && !playing);
+    b.textContent = `RESUME · ${n} SYSTEM MESSAGE${n>1?"S":""}`;
+  }
+  $("#lvSkip").addEventListener("click", ()=>end("next"));
+  $("#smClose").addEventListener("click", ()=>end("close"));
+  dlg.addEventListener("cancel", e => { e.preventDefault(); end("close"); });
+  $("#smResume").addEventListener("click", ()=>{ Q.paused = false; save(); run(); });
+  return { push, restore, run, handleAlertAction, get playing(){ return playing; }, get pending(){ return Q.items.length; }, themeName: t => THEME_NAME[t], renderResume,
+           _q: () => Q };
+})();
+
+/* =========================================================
+   11. DAILY QUEST (Quest Info)
+   ========================================================= */
+const remindersDoneOn = day => state.reminders.filter(r=>r.done && r.doneAt && dayKey(new Date(r.doneAt))===day).length;
+function goalProgress(g){
+  if(g.auto==="reminders") return Math.min(g.target, remindersDoneOn(state.daily.day));
+  return Math.max(0, Math.min(g.target, Number(state.daily.progress[g.id])||0));
+}
+const goalDone = g => goalProgress(g) >= g.target;
+const goalStep = g => g.target<=10 ? 1 : g.target<=30 ? 5 : 10;
+const remainingGoals = () => state.daily.goals.filter(g=>!goalDone(g));
+function deadlineTs(){ const [h,m] = state.daily.deadline.split(":").map(Number); const d = new Date(); d.setHours(h,m,0,0); return d.getTime(); }
+const fmtCount = g => `[${goalProgress(g)}/${g.target}${g.unit?" "+g.unit:""}]`;
+
+function rolloverDaily(){
+  const d = state.daily, today = dayKey();
+  if(d.day === today) return false;
+  const done = d.goals.filter(g => g.auto==="reminders" ? remindersDoneOn(d.day) >= g.target : (Number(d.progress[g.id])||0) >= g.target).length;
+  d.history.push({day:d.day, done, total:d.goals.length}); d.history = d.history.slice(-60);
+  Object.assign(d, {day:today, progress:{}, awarded:{}, alertedPre:null, alertedDue:null, clearedDay:null});
+  persist("daily"); return true;
+}
+function checkGoalAwards(){
+  const d = state.daily; let total = 0; const cleared = [];
+  for(const g of d.goals) if(goalDone(g) && !d.awarded[g.id]){ d.awarded[g.id] = true; total += QUEST_XP.daily; cleared.push(g); }
+  if(!total) return cleared;
+  const allDone = d.goals.length && !remainingGoals().length && d.clearedDay !== d.day;
+  if(allDone) d.clearedDay = d.day;
+  persist("daily");
+  const names = cleared.map(g=>g.title);
+  logNotif("system", cleared.length===1 ? `Objective complete: ${names[0]}` : `${cleared.length} objectives complete`, `+${total} XP`);
+  grant({ id:`obj:${d.day}:${cleared.map(g=>g.id).join(",")}`, type:"objective", kicker:"SYSTEM MESSAGE",
+          title: cleared.length===1 ? "OBJECTIVE COMPLETE" : "OBJECTIVES COMPLETE", name: names.join(" · "), sub:"REWARD ACQUIRED", reward:`+${total} XP` }, total);
+  if(allDone){
+    state.player.stats.clears++; persist("player");
+    logNotif("system", "Daily Quest cleared", `All ${d.goals.length} objectives complete · +${DAILY_CLEAR_BONUS} XP bonus`);
+    grant({ id:`daily:${d.day}`, type:"daily", kicker:"SYSTEM MESSAGE", title:"DAILY QUEST CLEARED", name:"ALL OBJECTIVES COMPLETE",
+            sub:"BONUS REWARD ACQUIRED", reward:`+${DAILY_CLEAR_BONUS} XP`, voice:"Daily quest cleared. All objectives complete." }, DAILY_CLEAR_BONUS);
+    const streak = currentStreak();
+    if(streak >= 7 && streak % 7 === 0 && !state.player.streakPaid[d.day]){
+      state.player.streakPaid[d.day] = streak; persist("player");
+      logNotif("system", `Shadow System reward: ${streak}-day streak`, `+${STREAK_REWARD} XP`);
+      grant({ id:`streak:${d.day}`, type:"special", kicker:"SHADOW SYSTEM REWARD", title:"SHADOW SYSTEM REWARD", name:`${streak} days of unbroken discipline`,
+              sub:"REWARD ACQUIRED", reward:`+${STREAK_REWARD} XP`, voice:`Shadow system reward. ${streak} days of unbroken discipline.` }, STREAK_REWARD);
+    }
+  }
+  checkAchievements();
+  return cleared;
+}
+function currentStreak(){
+  const byDay = new Map(state.daily.history.map(h=>[h.day,h]));
+  const total = state.daily.goals.length, todayDone = total - remainingGoals().length;
+  let streak = 0;
+  for(let i=1;i<=365;i++){ const dt=new Date(); dt.setDate(dt.getDate()-i); const h=byDay.get(dayKey(dt)); if(h && h.total && h.done>=h.total) streak++; else break; }
+  if(total && todayDone>=total) streak++;
+  return streak;
+}
+function changeGoal(id, mode){
+  const g = state.daily.goals.find(x=>x.id===id); if(!g) return;
+  if(g.auto){ toast("This goal counts the reminders you complete today."); return; }
+  let p = goalProgress(g);
+  if(mode==="toggle") p = p >= g.target ? 0 : g.target;
+  else p = Math.max(0, Math.min(g.target, p + mode));
+  state.daily.progress[id] = p; persist("daily");
+  const cleared = checkGoalAwards();
+  renderDaily();
+  const row = $(`.goal[data-id="${id}"]`);
+  if(row && cleared.some(c=>c.id===id)){ row.classList.add("flash"); row.append(el("span",{class:"xpfloat", text:`+${QUEST_XP.daily} XP`})); }
+}
+function deleteGoal(id, btn){
+  if(!btn.dataset.armed){ btn.dataset.armed="1"; btn.textContent="Delete?"; setTimeout(()=>{ if(btn.isConnected){ delete btn.dataset.armed; btn.textContent="Remove"; } }, 3000); return; }
+  const g = state.daily.goals.find(x=>x.id===id);
+  state.daily.goals = state.daily.goals.filter(x=>x.id!==id); delete state.daily.progress[id];
+  persist("daily"); renderDaily(); toast(`Goal removed: ${g?.title || ""}. Earned XP is kept.`);
+}
+function renderDaily(){
+  const d = state.daily, list = $("#goalList"); list.textContent = "";
+  if(!d.goals.length) list.append(el("div",{class:"empty"}, el("b",{text:"// NO GOALS"}), "Add a goal in Quest Settings."));
+  for(const g of d.goals){
+    const p = goalProgress(g), done = p >= g.target, step = goalStep(g);
+    list.append(el("div",{class:`goal${done?" done":""}`, "data-id":g.id},
+      el("span",{class:"gname", text:g.title}),
+      el("span",{class:"gcount", text:fmtCount(g)}),
+      el("button",{class:"gbox", type:"button", "aria-pressed":String(done), "aria-label":`${done?"Reset":"Complete"} ${g.title}`, onclick:()=>changeGoal(g.id,"toggle"), disabled: g.auto ? true : false}, checkSvg("#02040a")),
+      el("div",{class:"gbar"}, Object.assign(el("i"), {style:`width:${Math.round(p/g.target*100)}%`})),
+      el("div",{class:"gctl"},
+        g.auto ? el("span",{class:"auto", text:"Counts reminders you complete today"}) : null,
+        g.auto ? null : el("button",{type:"button", "aria-label":`Decrease ${g.title}`, onclick:()=>changeGoal(g.id,-step)}, `−${step}`),
+        g.auto ? null : el("button",{type:"button", "aria-label":`Increase ${g.title}`, onclick:()=>changeGoal(g.id,step)}, `+${step}`),
+        el("button",{class:"gdel", type:"button", "aria-label":`Remove goal ${g.title}`, onclick:e=>deleteGoal(g.id, e.currentTarget)}, "Remove"))
+    ));
+  }
+  const left = remainingGoals().length, total = d.goals.length, dl = deadlineTs();
+  $("#dailyStatus").textContent = total ? `${total-left} of ${total} goals cleared · deadline ${fmtTime(dl)}` : "";
+  const warn = $("#dailyWarn"); warn.textContent = ""; warn.classList.remove("overdue");
+  if(total && left && Date.now() >= dl){
+    warn.classList.add("overdue");
+    warn.append(el("b",{text:"WARNING: "}), `Deadline passed at ${fmtTime(dl)}. ${left} goal${left>1?"s":""} left. No penalty. Clear them when you're ready.`);
+  } else if(total && !left){
+    warn.append(el("b",{text:"QUEST CLEARED. "}), "Every goal is done for today. Rewards have been granted.");
+  } else if(total){
+    warn.append(el("b",{text:"NOTE: "}), "Missing the daily quest carries no penalty. Kage Monark will remind you before the deadline.");
+  }
+  $("#dDeadline").value = d.deadline; $("#dBefore").value = String(d.remindBefore);
+  renderToday(); renderHistory();
+}
+function renderToday(){
+  const box = $("#todayBox"); box.textContent = "";
+  const d = state.daily, total = d.goals.length, left = remainingGoals().length, dl = deadlineTs();
+  const pct = total ? Math.round((total-left)/total*100) : 0;
+  box.append(
+    el("div",{class:"top"}, el("span",{class:"big", text:`${total-left}/${total}`}), el("span",{class:"xptext", text:`DEADLINE ${fmtTime(dl)}`})),
+    el("div",{class:"xpbar", role:"progressbar", "aria-label":"Daily quest progress", "aria-valuenow":pct, "aria-valuemin":0, "aria-valuemax":100}, Object.assign(el("i"),{style:`width:${pct}%`})),
+    el("div",{class:"mini-goals"}, ...d.goals.slice(0,6).map(g=>el("div",{class:goalDone(g)?"ok":""}, el("span",{text:g.title}), el("span",{text:fmtCount(g)}))))
+  );
+  if(total && left && Date.now() >= dl) box.append(el("div",{class:"qi-warn overdue"}, el("b",{text:"WARNING: "}), `Daily quest overdue. ${left} goal${left>1?"s":""} left, no penalty.`));
+}
+function renderHistory(){
+  const box = $("#hist"); box.textContent = "";
+  const byDay = new Map(state.daily.history.map(h=>[h.day,h]));
+  const total = state.daily.goals.length, todayDone = total - remainingGoals().length;
+  let streak = 0, counting = true;
+  for(let i=13;i>=0;i--){
+    const dt = new Date(); dt.setDate(dt.getDate()-i); const k = dayKey(dt);
+    const h = i===0 ? {done:todayDone, total} : byDay.get(k);
+    const ratio = h && h.total ? h.done/h.total : 0;
+    box.append(el("div",{class:`d${ratio>=1?" full":""}${i===0?" today":""}`, title:`${k}: ${h ? `${h.done}/${h.total} goals` : "no data"}`},
+      el("div",{class:"b", style:"height:100%"}, Object.assign(el("i"),{style:`height:${Math.round(ratio*100)}%`})),
+      el("small",{text: i===0 ? "TODAY" : String(dt.getDate())})));
+  }
+  streak = currentStreak(); counting = false;
+  $("#streak").textContent = streak ? `STREAK ${streak} DAY${streak>1?"S":""}` : "";
+}
+$("#dDeadline").addEventListener("change", e=>{
+  if(!/^\d{2}:\d{2}$/.test(e.target.value)){ e.target.value = state.daily.deadline; return; }
+  state.daily.deadline = e.target.value;
+  if(deadlineTs() > Date.now()){ state.daily.alertedPre = null; state.daily.alertedDue = null; }
+  persist("daily"); renderDaily(); toast(`Daily quest deadline set to ${fmtTime(deadlineTs())}.`);
+});
+$("#dBefore").addEventListener("change", e=>{ state.daily.remindBefore = Number(e.target.value)||0; if(deadlineTs() > Date.now()) state.daily.alertedPre = null; persist("daily"); toast("Reminder timing saved."); });
+$("#goalForm").addEventListener("submit", e=>{
+  e.preventDefault();
+  const t=$("#gTitle"), n=$("#gTarget"), title=t.value.trim(), target=Math.round(Number(n.value));
+  t.classList.toggle("bad", !title); n.classList.toggle("bad", !(target>=1 && target<=100000));
+  if(!title){ toast("Name the goal first.", "err"); t.focus(); return; }
+  if(!(target>=1 && target<=100000)){ toast("Set a target between 1 and 100000.", "err"); n.focus(); return; }
+  if(state.daily.goals.some(g=>g.title.toLowerCase()===title.toLowerCase())){ toast("That goal is already in today's quest.", "err"); return; }
+  if(state.daily.goals.length >= 12){ toast("Daily quest holds up to 12 goals.", "err"); return; }
+  state.daily.goals.push(normalizeGoal({title, target, unit:$("#gUnit").value}));
+  persist("daily"); e.target.reset(); renderDaily(); toast(`Goal added: ${title}`, "xp");
+});
+
+/* =========================================================
+   12. MAIN + SIDE QUESTS
+   ========================================================= */
+function completeQuest(id){
+  const q = state.quests.find(x=>x.id===id); if(!q) return;
+  if(q.done){ q.done=false; persist("quests"); renderQuests(); toast(`Quest reopened: ${q.title}`); return; }
+  q.done = true; let award = 0;
+  if(!q.awarded){ award = QUEST_XP[q.type]; q.awarded = true; state.player.stats.quests++; if(q.type==="main") state.player.stats.mains++; }
+  persist("quests"); renderQuests();
+  const card = $(`.quest[data-id="${id}"]`);
+  if(card){ card.classList.add("flash"); if(award) card.append(el("span",{class:"xpfloat", text:`+${award} XP`})); }
+  if(award){
+    logNotif("system", `Quest completed: ${q.title}`, `+${award} XP`);
+    grant({ id:`quest:${q.id}`, type:"quest", kicker:"SYSTEM MESSAGE", title:"QUEST COMPLETED", name:q.title, sub:"REWARD ACQUIRED", reward:`+${award} XP` }, award);
+    checkAchievements();
+  } else toast(`Quest complete: ${q.title} (reward already acquired)`);
+}
+function deleteQuest(id){
+  const q = state.quests.find(x=>x.id===id); if(!q) return;
+  const btn = $(`.quest[data-id="${id}"] .del`);
+  if(btn && !btn.dataset.armed){ btn.dataset.armed="1"; btn.textContent="Delete?"; btn.style.fontSize="12px"; btn.style.color="var(--danger)";
+    setTimeout(()=>{ if(btn.isConnected){ delete btn.dataset.armed; btn.textContent="×"; btn.style.fontSize=""; btn.style.color=""; } }, 3000); return; }
+  state.quests = state.quests.filter(x=>x.id!==id); persist("quests"); renderQuests(); toast(`Quest removed: ${q.title}. Earned XP is kept.`);
+}
+function renderQuests(){
+  const list = $("#questList"); list.textContent = "";
+  const qs = [...state.quests].sort((a,b)=> (a.done-b.done) || ((a.due||9e15)-(b.due||9e15)) || (a.type==="main"?0:1)-(b.type==="main"?0:1) || a.createdAt-b.createdAt);
+  if(!qs.length){ list.append(el("div",{class:"empty"}, el("b",{text:"// QUEST LOG EMPTY"}), "Add a Main or Side quest to earn XP.")); return; }
+  for(const q of qs){
+    const reward = q.awarded ? (q.done ? "Cleared · XP earned" : "XP already earned") : `+${QUEST_XP[q.type]} XP on completion`;
+    const when = q.due ? `${q.done ? "Was due" : q.due <= Date.now() ? "Overdue since" : "Due"} ${fmtTime(q.due)} · ${new Date(q.due).toLocaleDateString([], {day:"numeric", month:"short"})}${q.done ? "" : " · " + relTime(q.due)}` : "No due time";
+    const overdue = !q.done && q.due && q.due <= Date.now();
+    list.append(el("div",{class:`quest${q.done?" done":""}${overdue?" overdue":""}${state.questEditId===q.id?" editing":""}`, "data-id":q.id},
+      el("button",{class:"qcheck", type:"button", "aria-pressed":String(!!q.done), "aria-label":`${q.done?"Reopen":"Complete"} quest ${q.title}`, onclick:()=>completeQuest(q.id)}, checkSvg()),
+      el("div",{class:"qt"}, el("div",{text:q.title}), el("small",{text:`${when} · ${reward}`}), q.desc ? el("small",{class:"qdesc", text:q.desc}) : null),
+      q.rank ? el("span",{class:`qrank r-${q.rank.toLowerCase()}`, text:`${q.rank}-RANK`}) : null,
+      el("span",{class:`qtype ${q.type}`, text:q.type.toUpperCase()}),
+      el("button",{class:"del", type:"button", "aria-label":`Edit quest ${q.title}`, title:"Edit quest", onclick:()=>startQuestEdit(q.id)}, "✎"),
+      el("button",{class:"del", type:"button", "aria-label":`Delete quest ${q.title}`, title:"Delete quest", onclick:()=>deleteQuest(q.id)}, "×")));
+  }
+}
+function resetQuestForm(){
+  state.questEditId = null; $("#questForm").reset(); $("#qSave").textContent = "Add Quest"; $("#qCancel").hidden = true; $("#eQuest").textContent = "";
+  for(const i of ["#qTitle","#qDate","#qTime"]) $(i).classList.remove("bad");
+}
+function startQuestEdit(id){
+  const q = state.quests.find(x=>x.id===id); if(!q) return;
+  state.questEditId = id;
+  $("#qTitle").value = q.title; $("#qType").value = q.type; $("#qRank").value = q.rank || ""; $("#qDesc").value = q.desc || "";
+  $("#qDate").value = q.due ? toInputDate(q.due) : ""; $("#qTime").value = q.due ? toInputTime(q.due) : "";
+  $("#qSave").textContent = "Save Quest"; $("#qCancel").hidden = false; renderQuests();
+  $("#questForm").scrollIntoView({behavior:"smooth", block:"start"}); setTimeout(()=>$("#qTitle").focus({preventScroll:true}), 300);
+}
+$("#qCancel").addEventListener("click", ()=>{ resetQuestForm(); renderQuests(); });
+$("#questForm").addEventListener("submit", e=>{
+  e.preventDefault();
+  const t = $("#qTitle"), title = t.value.trim(), type = $("#qType").value, rank = normRank($("#qRank").value), desc = $("#qDesc").value.trim().slice(0,400);
+  const dv = $("#qDate").value, tv = $("#qTime").value; $("#eQuest").textContent = "";
+  for(const i of ["#qTitle","#qDate","#qTime"]) $(i).classList.remove("bad");
+  if(!title){ t.classList.add("bad"); t.focus(); toast("Name the quest first.", "err"); return; }
+  let due = null;
+  if(dv || tv){
+    if(!dv || !tv){ $(dv ? "#qTime" : "#qDate").classList.add("bad"); $("#eQuest").textContent = "Set both a due date and a time, or leave both empty."; return; }
+    const [y,mo,d] = dv.split("-").map(Number), [h,mi] = tv.split(":").map(Number); due = new Date(y,mo-1,d,h,mi,0,0).getTime();
+    if(isNaN(due)){ $("#eQuest").textContent = "That date or time isn't valid."; return; }
+  }
+  const editing = state.questEditId && state.quests.find(q=>q.id===state.questEditId);
+  if(due && due < Date.now() - 30000 && (!editing || editing.due !== due)){ $("#qDate").classList.add("bad"); $("#qTime").classList.add("bad"); $("#eQuest").textContent = "That time has already passed. Pick a future time."; return; }
+  if(state.quests.some(q=>q.id!==state.questEditId && q.type===type && q.title.toLowerCase()===title.toLowerCase())){ toast("That quest is already in your log.", "err"); return; }
+  if(editing){
+    const moved = editing.due !== due;
+    Object.assign(editing, { title, type: editing.awarded ? editing.type : type, rank, desc, due });
+    if(moved && !editing.done) editing.alerted = !!(due && due <= Date.now());
+    persist("quests"); toast(`Quest updated: ${title}`);
+  } else {
+    state.quests.push({ id:uid(), title, type, rank, desc, due, alerted:false, done:false, awarded:false, createdAt:Date.now() });
+    persist("quests"); toast(due ? `${type==="main"?"Main":"Side"} quest scheduled for ${fmtTime(due)}, ${fmtDate(due)}.` : `${type==="main"?"Main":"Side"} quest added: ${title}`, "xp");
+  }
+  resetQuestForm(); renderQuests(); Bg.sync();
+});
+$("#qTitle").addEventListener("input", e=>e.target.classList.remove("bad"));
+
+/* =========================================================
+   13. NOTIFICATION CENTER
+   ========================================================= */
+const KIND_LABEL = { reminder:"PERSONAL REMINDER", daily:"DAILY QUEST", system:"KAGE MONARK" };
+function logNotif(kind, title, msg, ref){
+  const n = { id:uid(), kind, title:String(title).slice(0,140), msg:String(msg||"").slice(0,400), at:Date.now(), read:false, ref:ref||null };
+  state.notifs.unshift(n); state.notifs = state.notifs.slice(0,60); persist("notifs"); renderNotifs(); return n.id;
+}
+function markRead(id){ const n = state.notifs.find(x=>x.id===id); if(n && !n.read){ n.read = true; persist("notifs"); renderNotifs(); } }
+function openFromNotif(n){
+  markRead(n.id);
+  if(n.kind==="reminder" && n.ref && !state.reminders.some(r=>r.id===n.ref) && state.quests.some(q=>q.id===n.ref)){
+    setTab("quests"); setTimeout(()=>$(`.quest[data-id="${n.ref}"]`)?.scrollIntoView({behavior:"smooth", block:"center"}), 80); return;
+  }
+  if(n.kind==="reminder" && n.ref && state.reminders.some(r=>r.id===n.ref)){
+    setTab("home"); state.spotId = n.ref; state.filter = "all"; for(const c of $("#filters").children) c.setAttribute("aria-pressed", String(c.dataset.f==="all"));
+    renderReminders(); setTimeout(()=>$(`.rem[data-id="${n.ref}"]`)?.scrollIntoView({behavior:"smooth", block:"center"}), 60);
+    setTimeout(()=>{ state.spotId=null; renderReminders(); }, 4000);
+  } else if(n.kind==="daily" || n.kind==="system") setTab("quests");
+}
+function notifRow(n){
+  return el("button",{class:`nitem${n.read?"":" unread"}`, type:"button", onclick:()=>openFromNotif(n)},
+    el("span",{class:"dot","aria-hidden":"true"}),
+    el("span",{}, el("span",{class:"k", text:KIND_LABEL[n.kind]||"ALERT"}), el("b",{text:n.title}), n.msg ? el("small",{text:n.msg}) : null),
+    el("time",{datetime:new Date(n.at).toISOString(), text:relTime(n.at)}));
+}
+function renderNotifs(){
+  const unread = state.notifs.filter(n=>!n.read).length;
+  const b = $("#unreadBadge"); b.hidden = !unread; b.textContent = unread>99 ? "99+" : String(unread);
+  const full = $("#nList"), recent = $("#recentList"); full.textContent = ""; recent.textContent = "";
+  if(!state.notifs.length){
+    full.append(el("div",{class:"empty"}, el("b",{text:"// NO ALERTS YET"}), "Reminders, daily quest alerts and level ups appear here."));
+    recent.append(el("div",{class:"empty"}, el("b",{text:"// ALL QUIET"}), "No alerts yet."));
+    return;
+  }
+  for(const n of state.notifs) full.append(notifRow(n));
+  for(const n of state.notifs.slice(0,3)) recent.append(notifRow(n));
+}
+$("#btnReadAll").addEventListener("click", ()=>{ let c=0; for(const n of state.notifs) if(!n.read){ n.read=true; c++; } if(c){ persist("notifs"); renderNotifs(); } toast(c ? `Marked ${c} alert${c>1?"s":""} as read.` : "Everything is already read."); });
+$("#btnClearN").addEventListener("click", e=>{
+  const b = e.currentTarget;
+  if(!state.notifs.length){ toast("Alert history is already empty."); return; }
+  if(!b.dataset.armed){ b.dataset.armed="1"; b.textContent="Confirm Clear"; setTimeout(()=>{ delete b.dataset.armed; b.textContent="Clear History"; }, 4000); return; }
+  state.notifs = []; persist("notifs"); renderNotifs(); delete b.dataset.armed; b.textContent="Clear History"; toast("Alert history cleared.");
+});
+
+/* =========================================================
+   14. ALERT ENGINE — checks while open, each alert fires once
+   ========================================================= */
+let titleFlash = null, lastCheck = 0;
+/* One Quest Panel message for anything with a due time (reminders, Main/Side quests).
+   Fields: title, description, scheduled time, XP reward, level. Buttons: COMPLETE QUEST / SNOOZE / DISMISS. */
+function questAlert(item, kind){
+  const stamp = t => `${fmtTime(t)} · ${new Date(t).toLocaleDateString([], {day:"numeric", month:"short"})}`;
+  const missed = Date.now() - item.due > 2*60000, name = displayName(), info = levelInfo(state.player.xp);
+  const xp = kind === "quest" ? (item.awarded ? 0 : QUEST_XP[item.type]) : (item.xpAwarded ? 0 : REMINDER_XP);
+  const desc = kind === "quest" ? item.desc : item.notes;
+  const label = kind === "quest" ? `${item.type === "main" ? "MAIN" : "SIDE"} QUEST` : "PERSONAL REMINDER";
+  return {
+    id:`${kind}due:${item.id}:${item.due}`, type:"reminder", kind, ref:item.id, missed, qrank:item.rank || "",
+    kicker: missed ? "SYSTEM WARNING" : "KAGE MONARK SYSTEM", title: missed ? "QUEST INCOMPLETE" : "QUEST ARRIVED", name:item.title,
+    sub: missed ? "OBJECTIVE REMAINS UNRESOLVED" : `${label}${item.rank ? " · " + item.rank + "-RANK" : ""}`,
+    reward: xp ? `+${xp} XP REWARD` : "REWARD ALREADY ACQUIRED", detail: desc || "",
+    meta:[["SCHEDULED", stamp(item.due)], ["LEVEL", `LV ${info.lvl} · ${info.rank}-RANK`]],
+    voice:`${name ? name + ". " : ""}${missed ? "Warning. " : ""}${label.toLowerCase()}. ${item.title}${desc ? ". " + desc : ""}`,
+    notifTitle:`${missed ? "SYSTEM WARNING" : "KAGE MONARK SYSTEM"} · ${item.title}`, notifBody:`${label} · ${fmtTime(item.due)}${xp ? " · +" + xp + " XP" : ""}${desc ? "\n" + desc : ""}`
+  };
+}
+function checkAll(){
+  if(!entered) return;
+  lastCheck = Date.now();
+  if(rolloverDaily()) renderDaily();
+  const stamp = t => `${fmtTime(t)} · ${new Date(t).toLocaleDateString([], {day:"numeric", month:"short"})}`;
+  let remChanged = false, qChanged = false;
+  for(const r of state.reminders){
+    if(!r.done && !r.alerted && r.due <= Date.now()){
+      r.alerted = true; remChanged = true; // mark first, so it can never alert twice
+      const m = questAlert(r, "reminder");
+      m.nid = logNotif("reminder", r.title, r.notes || `${m.missed ? "Was due" : "Due"} ${fmtTime(r.due)}`, r.id);
+      if(state.profile.cats.reminder) SysMsg.push(m);
+    }
+  }
+  for(const q of state.quests){
+    if(q.due && !q.done && !q.alerted && q.due <= Date.now()){
+      q.alerted = true; qChanged = true;
+      const m = questAlert(q, "quest");
+      m.nid = logNotif("reminder", q.title, q.desc || `${q.type === "main" ? "Main" : "Side"} quest due ${fmtTime(q.due)}`, q.id);
+      if(state.profile.cats.reminder) SysMsg.push(m);
+    }
+  }
+  if(remChanged) persist("reminders");
+  if(qChanged){ persist("quests"); renderQuests(); }
+  const d = state.daily, today = dayKey(), dl = deadlineTs(), left = remainingGoals(), info = levelInfo(state.player.xp);
+  const snoozed = d.snoozeDay === today && Date.now() < (d.snoozeUntil || 0);
+  if(d.goals.length && left.length && !snoozed){
+    const lines = left.map(g=>`${g.title}  ${fmtCount(g)}`).join("\n"), n = d.snoozeDay === today ? (d.snoozeN || 0) : 0;
+    const reward = `+${left.length * QUEST_XP.daily} XP · +${DAILY_CLEAR_BONUS} CLEAR BONUS`, lvl = ["LEVEL", `LV ${info.lvl} · ${info.rank}-RANK`];
+    if(d.remindBefore>0 && d.alertedPre!==today && Date.now() >= dl - d.remindBefore*60000 && Date.now() < dl){
+      d.alertedPre = today; persist("daily");
+      const nid = logNotif("daily", "Daily Quest ends soon", `${left.length} objective${left.length>1?"s":""} left before ${fmtTime(dl)}.`);
+      if(state.profile.cats.daily) SysMsg.push({ id:`dp:${today}:${n}`, type:"daily-pre", day:today, nid, kicker:"KAGE MONARK SYSTEM", title:"DAILY QUEST",
+        name:`DEADLINE ${fmtTime(dl)}`, sub:`${left.length} OBJECTIVE${left.length>1?"S":""} REMAIN`, reward, detail:lines, meta:[["SCHEDULED", fmtTime(dl)], lvl],
+        voice:`Daily quest. ${left.length} objective${left.length>1?"s":""} remain before ${fmtTime(dl)}.`, notifTitle:"KAGE MONARK SYSTEM · Daily Quest", notifBody:`${left.length} objectives remain · deadline ${fmtTime(dl)}` });
+    }
+    if(d.alertedDue!==today && Date.now() >= dl){
+      d.alertedDue = today; d.alertedPre = today; persist("daily");
+      const nid = logNotif("daily", "Daily Quest incomplete", `${left.length} objective${left.length>1?"s":""} unresolved. No penalty.`);
+      if(state.profile.cats.daily) SysMsg.push({ id:`dd:${today}:${n}`, type:"daily-due", day:today, nid, kicker:"SYSTEM WARNING", title:"QUEST INCOMPLETE",
+        name:"DAILY QUEST", sub:"OBJECTIVE REMAINS UNRESOLVED", reward, detail:`${lines}\n\nThe deadline has passed. No penalty is applied.`, meta:[["SCHEDULED", fmtTime(dl)], lvl],
+        voice:"Warning. Daily quest incomplete. Objective remains unresolved.", notifTitle:"SYSTEM WARNING · Daily Quest", notifBody:`${left.length} objectives unresolved` });
+    }
+  }
+  renderReminders(); renderNext(); renderWatch();
+  if(d.goals.length && left.length && Date.now() >= dl && !$("#dailyWarn").classList.contains("overdue")) renderDaily();
+}
+const SAMPLES = {
+  level:      () => { const L = Math.max(2, levelInfo(state.player.xp).lvl + 1); return { type:"level", kicker:"SYSTEM MESSAGE", title:"LEVEL UP", levels:{from:L-1,to:L}, sub:"YOUR POWER HAS INCREASED", gain:xpToNext(L-1), total:xpForLevel(L)+10, level:L }; },
+  quest:      () => ({ type:"quest", kicker:"SYSTEM MESSAGE", title:"QUEST COMPLETED", name:"Defeat the Exam Boss", sub:"REWARD ACQUIRED", reward:"+50 XP" }),
+  achievement:() => ({ type:"achievement", kicker:"SYSTEM MESSAGE", title:"ACHIEVEMENT UNLOCKED", name:"Unbroken Discipline", detail:"Clear the daily quest 3 days in a row", sub:"REWARD ACQUIRED", reward:"+30 XP" }),
+  daily:      () => ({ type:"daily", kicker:"SYSTEM MESSAGE", title:"DAILY QUEST CLEARED", name:"ALL OBJECTIVES COMPLETE", sub:"BONUS REWARD ACQUIRED", reward:`+${DAILY_CLEAR_BONUS} XP` }),
+  rank:       () => ({ type:"rank", kicker:"SYSTEM MESSAGE", title:"RANK PROMOTION", ranks:{from:"D-RANK", to:"C-RANK"}, level:10 }),
+  milestone:  () => ({ type:"milestone", kicker:"SYSTEM MESSAGE", title:"MILESTONE ACHIEVED", name:"1,000 TOTAL EXPERIENCE", sub:"REWARD ACQUIRED", reward:"TITLE: AWAKENED HUNTER" }),
+  task:       () => ({ type:"task", kicker:"SYSTEM MESSAGE", title:"TASK COMPLETED", name:"Submit project report", sub:"EXPERIENCE ACQUIRED", reward:`+${REMINDER_XP} XP` }),
+  special:    () => ({ type:"special", kicker:"SHADOW SYSTEM REWARD", title:"SHADOW SYSTEM REWARD", name:"Seven days of unbroken discipline", sub:"REWARD ACQUIRED", reward:`+${STREAK_REWARD} XP` }),
+  warning:    () => ({ type:"warning", kicker:"SYSTEM WARNING", title:"QUEST INCOMPLETE", name:"DAILY QUEST", sub:"OBJECTIVE REMAINS UNRESOLVED", detail:"Study session  [20/60 min]\nDrink water  [5/8 glasses]" }),
+  reminder:   () => ({ type:"reminder", kicker:"SYSTEM MESSAGE", title:"QUEST ARRIVED", name:"Submit project report", sub:"PERSONAL REMINDER", meta:[["TIME", fmtTime(Date.now())]] })
+};
+function previewMsg(kind, level){
+  const m = (SAMPLES[kind] || SAMPLES.quest)();
+  if(level && kind==="level"){ m.levels = {from:level-1, to:level}; m.gain = xpToNext(level-1); m.total = xpForLevel(level)+Math.round(xpToNext(level)*.12); m.level = level; }
+  else if(level) m.level = level;
+  SysMsg.push({ ...m, id:`preview:${uid()}`, preview:true });
+}
+$("#btnPreview").addEventListener("click", ()=> previewMsg("reminder"));
+function startTitleFlash(){
+  stopTitleFlash(); let on = false; const base = document.title;
+  titleFlash = setInterval(()=>{ document.title = (on=!on) ? "⟡ QUEST INFO" : base; }, 1000);
+}
+function stopTitleFlash(){ if(titleFlash){ clearInterval(titleFlash); titleFlash=null; renderWelcome(); } }
+
+/* ---------- browser notifications ---------- */
+const notifSupported = "Notification" in window;
+let notifFallback = false;
+
+/* =========================================================
+   14b. BACKGROUND — service worker, system notifications, install.
+   Progressive: every part switches on only where the host and browser allow it.
+   ========================================================= */
+const Bg = (() => {
+  let reg = null, sw = "checking", installEvt = null, installed = false, syncT = null;
+  const triggers = typeof window.TimestampTrigger === "function" && "showTrigger" in Notification.prototype;
+  async function init(){
+    installed = matchMedia("(display-mode: standalone)").matches || navigator.standalone === true;
+    if(!("serviceWorker" in navigator)){ sw = "unsupported"; return done(); }
+    try{
+      reg = await navigator.serviceWorker.register("sw.js");
+      await Promise.race([navigator.serviceWorker.ready, new Promise(r => setTimeout(r, 4000))]);
+      sw = reg.active || reg.waiting || reg.installing ? "active" : "blocked";
+      navigator.serviceWorker.addEventListener("message", e => {
+        const d = e.data || {};
+        if(d.type === "quest-action" && d.ref) SysMsg.handleAlertAction({ type:"reminder", kind:d.kind === "quest" ? "quest" : "reminder", ref:d.ref }, d.action === "done" || d.action === "snooze" ? d.action : "open");
+      });
+    }catch{ sw = "blocked"; reg = null; }
+    done();
+  }
+  function done(){ renderDiagnostics(); sync(); }
+  async function notify(title, body, tag, data){
+    if(!notifSupported || Notification.permission !== "granted") return false;
+    if(reg && sw === "active"){
+      try{
+        await reg.showNotification(title, { body, tag, data: data || {}, requireInteraction:true, icon:"icon-192.png", badge:"icon-192.png",
+          actions: data && data.ref ? [{ action:"done", title:"Complete quest" }, { action:"snooze", title:"Snooze 10 min" }] : [] });
+        return true;
+      }catch{}
+    }
+    try{ const n = new Notification(title, { body, tag, requireInteraction:true }); n.onclick = () => { window.focus(); n.close(); }; return true; }
+    catch{ notifFallback = true; renderDiagnostics(); return false; }
+  }
+  // Where the browser supports scheduled notifications (Notification Triggers), hand every upcoming
+  // quest to the system so it can fire while the page is closed. Otherwise the page itself alerts.
+  function upcoming(){
+    const now = Date.now(), out = [];
+    for(const r of state.reminders) if(!r.done && !r.alerted && r.due > now) out.push({ kind:"reminder", ref:r.id, due:r.due, title:r.title, body:r.notes || "Personal reminder" });
+    for(const q of state.quests) if(q.due && !q.done && !q.alerted && q.due > now) out.push({ kind:"quest", ref:q.id, due:q.due, title:q.title, body:q.desc || `${q.type === "main" ? "Main" : "Side"} quest · +${q.awarded ? 0 : QUEST_XP[q.type]} XP` });
+    return out.sort((a,b) => a.due - b.due).slice(0, 50);
+  }
+  function sync(){ clearTimeout(syncT); syncT = setTimeout(syncNow, 600); }
+  // Android app: every upcoming alarm (reminders, quests, daily quest) goes to the phone's alarm system.
+  function nativeItems(){
+    const info = levelInfo(state.player.xp), lvl = `LV ${info.lvl} · ${info.rank}-RANK`, out = [];
+    for(const i of upcoming()){
+      const it = (i.kind === "quest" ? state.quests : state.reminders).find(x => x.id === i.ref) || {};
+      const label = i.kind === "quest" ? `${it.type === "main" ? "MAIN" : "SIDE"} QUEST` : "PERSONAL REMINDER";
+      const xp = i.kind === "quest" ? (it.awarded ? 0 : QUEST_XP[it.type] || 0) : (it.xpAwarded ? 0 : REMINDER_XP);
+      out.push({ id:`${i.kind}:${i.ref}:${i.due}`, type:"reminder", kind:i.kind, ref:i.ref, due:i.due, title:i.title,
+        label:`${label}${it.rank ? " · " + it.rank + "-RANK" : ""}`, rank:it.rank || "", desc:(i.kind === "quest" ? it.desc : it.notes) || "", xp, level:lvl });
+    }
+    const d = state.daily, left = remainingGoals();
+    if(d.goals.length){
+      const today = dayKey(), now = Date.now(), dl0 = deadlineTs();
+      const lines = g => g.map(x => `${x.title}  ${fmtCount(x)}`).join("\n");
+      for(const off of [0, 86400000]){
+        const dl = dl0 + off, first = off === 0, goals = first ? left : d.goals;
+        if(!goals.length) continue;
+        const desc = first ? lines(goals) : d.goals.map(x => x.title).join("\n");
+        const snoozed = first && d.snoozeDay === today && now < (d.snoozeUntil || 0);
+        const pre = dl - d.remindBefore * 60000;
+        if(d.remindBefore > 0 && pre > now && !(first && (d.alertedPre === today || snoozed)))
+          out.push({ id:`daily-pre:${dayKey(new Date(dl))}`, type:"daily-pre", kind:"daily", ref:dayKey(new Date(dl)), due:pre, title:"DAILY QUEST", label:`DEADLINE ${fmtTime(dl)}`, rank:"", desc, xp:goals.length * QUEST_XP.daily, level:lvl });
+        if(dl > now && !(first && (d.alertedDue === today || snoozed)))
+          out.push({ id:`daily-due:${dayKey(new Date(dl))}`, type:"daily-due", kind:"daily", ref:dayKey(new Date(dl)), due:dl, title:"DAILY QUEST", label:"OBJECTIVE REMAINS UNRESOLVED", rank:"", desc, xp:goals.length * QUEST_XP.daily, level:lvl });
+      }
+      if(d.snoozeDay === today && now < (d.snoozeUntil || 0) && left.length)
+        out.push({ id:`daily-snooze:${today}:${d.snoozeUntil}`, type: now >= dl0 ? "daily-due" : "daily-pre", kind:"daily", ref:today, due:d.snoozeUntil, title:"DAILY QUEST", label:`DEADLINE ${fmtTime(dl0)}`, rank:"", desc:lines(left), xp:left.length * QUEST_XP.daily, level:lvl });
+    }
+    return out.sort((a,b) => a.due - b.due).slice(0, 60);
+  }
+  async function syncNow(){
+    if(window.KageNative){ if(entered) try{ KageNative.schedule(JSON.stringify(nativeItems())); }catch{} return; }
+    if(!reg || sw !== "active" || !triggers || Notification.permission !== "granted") return;
+    try{
+      const items = upcoming(), want = new Set(items.map(i => `km-sched-${i.kind}-${i.ref}-${i.due}`));
+      for(const n of await reg.getNotifications({ includeTriggered:true })) if(n.tag.startsWith("km-sched-") && !want.has(n.tag)) n.close();
+      for(const i of items) await reg.showNotification(`KAGE MONARK SYSTEM · ${i.title}`, { tag:`km-sched-${i.kind}-${i.ref}-${i.due}`, body:i.body,
+        showTrigger:new TimestampTrigger(i.due), data:{ kind:i.kind, ref:i.ref }, requireInteraction:true, icon:"icon-192.png",
+        actions:[{ action:"done", title:"Complete quest" }, { action:"snooze", title:"Snooze 10 min" }] });
+    }catch{}
+  }
+  addEventListener("beforeinstallprompt", e => { e.preventDefault(); installEvt = e; renderDiagnostics(); });
+  addEventListener("appinstalled", () => { installed = true; installEvt = null; toast("KAGE MONARK SYSTEM installed."); renderDiagnostics(); });
+  async function install(){
+    if(!installEvt){ toast(installed ? "Already installed on this device." : "Install isn't available here. Open the app from its own website to install it.", installed ? "" : "err"); return; }
+    installEvt.prompt(); const c = await installEvt.userChoice.catch(()=>null); installEvt = null;
+    toast(c && c.outcome === "accepted" ? "Installing KAGE MONARK SYSTEM…" : "Install cancelled."); renderDiagnostics();
+  }
+  return { init, notify, sync, install, get sw(){ return sw; }, get triggers(){ return triggers; }, get canInstall(){ return !!installEvt; }, get installed(){ return installed; } };
+})();
+function sendNotification(title, body, tag, data){ Bg.notify(title, body, `km-${tag}`, data); }
+function renderNotifyButton(){
+  const b = $("#btnNotify");
+  if(window.KageNative){ b.disabled = false; b.classList.add("on"); b.textContent = "Alarm Settings"; return; }
+  if(!notifSupported){ b.textContent = "Notifications N/A"; b.disabled = true; return; }
+  const p = Notification.permission;
+  b.disabled = p === "denied"; b.classList.toggle("on", p==="granted");
+  b.textContent = p==="granted" ? "Send Test Notification" : p==="denied" ? "Notifications Blocked" : "Enable Notifications";
+}
+$("#btnNotify").addEventListener("click", async ()=>{
+  if(window.KageNative){ try{ KageNative.openSettings(); }catch{} return; }
+  if(!notifSupported) return;
+  if(Notification.permission === "granted"){
+    try{ new Notification("KAGE MONARK · System test", {body:"Notifications are working, Hunter.", tag:"jarvis-test"}); toast("Test notification sent."); }
+    catch{ notifFallback=true; toast("This browser shows Kage Monark alerts on the page only.", "err"); }
+    renderDiagnostics(); return;
+  }
+  try{
+    const res = await Notification.requestPermission();
+    if(res==="granted") toast("Notifications enabled.");
+    else if(res==="denied") toast("Notifications are blocked here. On-page alerts, chime and voice still work.", "err");
+    else toast("Notification permission was dismissed.");
+  }catch{ toast("This view can't ask for notification permission. On-page alerts still work.", "err"); }
+  renderNotifyButton(); renderDiagnostics();
+});
+
+/* ---------- voice ---------- */
+const ttsSupported = "speechSynthesis" in window && "SpeechSynthesisUtterance" in window;
+let voices = [];
+function loadVoices(){
+  if(!ttsSupported) return;
+  voices = speechSynthesis.getVoices();
+  const sel = $("#sVoice"), keep = state.profile.voiceURI;
+  sel.textContent = ""; sel.append(el("option",{value:""},"System default"));
+  const sorted = [...voices].sort((a,b)=> (b.lang.startsWith("en")-a.lang.startsWith("en")) || a.name.localeCompare(b.name));
+  for(const v of sorted) sel.append(el("option",{value:v.voiceURI}, `${v.name} (${v.lang})`));
+  sel.value = voices.some(v=>v.voiceURI===keep) ? keep : "";
+  renderDiagnostics();
+}
+if(ttsSupported){ loadVoices(); speechSynthesis.addEventListener?.("voiceschanged", loadVoices); }
+let userActivated = false;
+["pointerdown","keydown","touchstart"].forEach(t=>addEventListener(t, ()=>{ if(!userActivated){ userActivated=true; renderDiagnostics(); } }, {once:true, passive:true}));
+function speak(text, force=false){
+  if(!ttsSupported || (!state.profile.voiceOn && !force)) return false;
+  try{
+    speechSynthesis.cancel();
+    const u = new SpeechSynthesisUtterance(text);
+    const v = voices.find(v=>v.voiceURI===state.profile.voiceURI);
+    if(v){ u.voice = v; u.lang = v.lang; }
+    u.rate = Number(state.profile.rate) || 1; u.pitch = .95;
+    speechSynthesis.speak(u); return true;
+  }catch{ return false; }
+}
+$("#btnVoiceTest").addEventListener("click", ()=>{
+  if(!ttsSupported){ toast("This browser has no text-to-speech engine.", "err"); return; }
+  if(!voices.length && performance.now() > 4000){ toast("No voices are installed in this browser.", "err"); return; }
+  speak(`Voice engine online. Welcome back, ${displayName() || "Hunter"}. All systems are ready.`, true);
+  toast(state.profile.voiceOn ? "Speaking test message…" : "Speaking test. Voice alerts are switched off.");
+});
+
+/* =========================================================
+   15. SETTINGS (notification categories, sound, voice)
+   ========================================================= */
+function renderSettings(){
+  const p = state.profile;
+  $("#cReminder").checked = p.cats.reminder; $("#cDaily").checked = p.cats.daily; $("#cSystem").checked = p.cats.system;
+  $("#sChime").checked = p.chime; $("#sSfx").checked = p.sfx; $("#sVoiceOn").checked = p.voiceOn;
+  $("#sVoiceOn").disabled = $("#sVoice").disabled = !ttsSupported;
+  $("#sRate").value = p.rate; $("#sRateVal").textContent = `${Number(p.rate).toFixed(1)}×`;
+  if(voices.some(v=>v.voiceURI===p.voiceURI)) $("#sVoice").value = p.voiceURI;
+  if(document.activeElement !== $("#sName")) $("#sName").value = p.name;
+  renderLvSettings();
+}
+const toggles = { cReminder:["cats","reminder"], cDaily:["cats","daily"], cSystem:["cats","system"], sChime:["chime"], sSfx:["sfx"], sVoiceOn:["voiceOn"] };
+for(const [id, path] of Object.entries(toggles)){
+  $("#"+id).addEventListener("change", e=>{
+    if(path.length===2) state.profile[path[0]][path[1]] = e.target.checked; else state.profile[path[0]] = e.target.checked;
+    persist("profile"); renderDiagnostics(); if(id==="sSfx" && e.target.checked) sfx("complete");
+  });
+}
+$("#sVoice").addEventListener("change", e=>{ state.profile.voiceURI = e.target.value; persist("profile"); });
+let rateT; $("#sRate").addEventListener("input", e=>{ $("#sRateVal").textContent = `${Number(e.target.value).toFixed(1)}×`; clearTimeout(rateT); rateT = setTimeout(()=>{ state.profile.rate = Number(e.target.value)||1; persist("profile"); }, 400); });
+function renderDest(){
+  const box = $("#destList"); box.textContent = "";
+  const p = notifSupported ? Notification.permission : "unsupported";
+  const rows = [
+    ["This screen", "Quest Info panel, chime and voice while Kage Monark is open", "Active", "ok"],
+    ["Browser notifications", "System pop-ups from this browser while Kage Monark is open",
+      p==="granted" ? (notifFallback ? "Page alerts only" : "On") : p==="denied" ? "Blocked" : p==="unsupported" ? "Not supported" : "Off", p==="granted" && !notifFallback ? "ok" : p==="denied" ? "bad" : "warn"],
+    ["Background service", "Service worker that shows system notifications and opens the quest when tapped",
+      Bg.sw === "active" ? "Active" : Bg.sw === "checking" ? "Checking" : "Not available on this host", Bg.sw === "active" ? "ok" : "warn"],
+    ["Alarms while the browser is closed", Bg.triggers && Bg.sw === "active" ? "Scheduled with the browser (experimental Notification Triggers)" : "Needs a push server or a browser with scheduled notifications",
+      Bg.triggers && Bg.sw === "active" ? "On" : "Not set up", Bg.triggers && Bg.sw === "active" ? "ok" : ""],
+    ["Install as an app", "Add KAGE MONARK SYSTEM to the home screen", Bg.installed ? "Installed" : Bg.canInstall ? "Available" : "Not available on this host", Bg.installed || Bg.canInstall ? "ok" : ""],
+    ["Email alerts", "Needs a verified address and a mail service", "Not set up", ""],
+    ["SMS alerts", "Needs a verified phone number and an SMS provider", "Not set up", ""]
+  ];
+  for(const [t, s, v, st] of rows) box.append(el("div",{class:"row"}, el("div",{class:"lbl"}, t, el("small",{text:s})), el("span",{class:"pill", "data-s":st, text:v})));
+}
+
+/* ---------- level-up settings ---------- */
+function renderLvSettings(){
+  const s = state.profile.lvl;
+  $("#lvRepeat").checked = s.repeat; $("#lvReps").value = String(s.reps); $("#lvReps").disabled = !s.repeat;
+  $("#lvIntensity").value = s.intensity;
+  $("#lvDur").value = s.dur; $("#lvDurVal").textContent = `${Number(s.dur).toFixed(1)} s`;
+  $("#lvMsgDur").value = s.msgDur; $("#lvMsgDurVal").textContent = `${Number(s.msgDur).toFixed(1)} s`;
+  $("#lvDelay").value = s.delay; $("#lvDelayVal").textContent = `${Number(s.delay).toFixed(1)} s`;
+  $("#lvSpd").value = s.spd; $("#lvSpdVal").textContent = `${Number(s.spd).toFixed(1)}×`;
+  $("#lvFlames").checked = s.flames; $("#lvSound").checked = s.sound;
+  $("#lvVol").value = s.vol; $("#lvVolVal").textContent = `${s.vol}%`; $("#lvVol").disabled = !s.sound;
+  $("#lvTheme").value = s.theme;
+  for(const k of ["purple","red","gold","monarch"]){ const i = $("#th"+k[0].toUpperCase()+k.slice(1)); if(document.activeElement !== i) i.value = s.th[k]; i.disabled = s.theme !== "auto"; }
+  const lvl = levelInfo(state.player.xp).lvl;
+  $("#lvThemeNow").textContent = `NOW: ${SysMsg.themeName(themeFor(lvl)).toUpperCase()}`;
+}
+let lvSaveT;
+function saveLv(msg){ clearTimeout(lvSaveT); lvSaveT = setTimeout(()=>{ persist("profile"); if(msg) toast(msg); }, 350); renderLvSettings(); renderPlayer(); }
+const lvBind = (id, ev, fn) => $("#"+id).addEventListener(ev, e => { fn(e.target); saveLv(); });
+lvBind("lvRepeat","change", t => state.profile.lvl.repeat = t.checked);
+lvBind("lvReps","change", t => state.profile.lvl.reps = Number(t.value));
+lvBind("lvIntensity","change", t => state.profile.lvl.intensity = t.value);
+lvBind("lvDur","input", t => state.profile.lvl.dur = Number(t.value));
+lvBind("lvMsgDur","input", t => state.profile.lvl.msgDur = Number(t.value));
+lvBind("lvDelay","input", t => state.profile.lvl.delay = Number(t.value));
+lvBind("lvSpd","input", t => state.profile.lvl.spd = Number(t.value));
+lvBind("lvFlames","change", t => state.profile.lvl.flames = t.checked);
+lvBind("lvSound","change", t => state.profile.lvl.sound = t.checked);
+lvBind("lvVol","input", t => state.profile.lvl.vol = Number(t.value));
+lvBind("lvTheme","change", t => state.profile.lvl.theme = t.value);
+for(const k of ["Purple","Red","Gold","Monarch"]){
+  $("#th"+k).addEventListener("change", ()=>{
+    const v = { purple:+$("#thPurple").value, red:+$("#thRed").value, gold:+$("#thGold").value, monarch:+$("#thMonarch").value };
+    const ok = Object.values(v).every(n => Number.isInteger(n) && n >= 2 && n <= 999) && v.purple < v.red && v.red < v.gold && v.gold < v.monarch;
+    for(const x of ["Purple","Red","Gold","Monarch"]) $("#th"+x).classList.toggle("bad", !ok);
+    $("#eThr").textContent = ok ? "" : "Use whole levels from 2 to 999, each higher than the one before (Purple < Red < Gold < Monarch).";
+    if(!ok) return;
+    state.profile.lvl.th = v; saveLv("Theme levels saved.");
+  });
+}
+$("#lvPreviewBtn").addEventListener("click", ()=>{
+  const inp = $("#lvPrevLvl"), lvl = Math.round(Number(inp.value)), kind = $("#lvPrevKind").value;
+  if(!(lvl >= 2 && lvl <= 999)){ inp.classList.add("bad"); toast("Pick a preview level from 2 to 999.", "err"); return; }
+  inp.classList.remove("bad");
+  if(SysMsg.playing){ toast("A System Message is already on screen."); return; }
+  previewMsg(kind, lvl);
+});
+$("#lvResetBtn").addEventListener("click", ()=>{
+  state.profile.lvl = normalizeLv(clone(LV_DEFAULTS));
+  for(const x of ["Purple","Red","Gold","Monarch"]) $("#th"+x).classList.remove("bad"); $("#eThr").textContent = "";
+  saveLv("Level-up settings reset to defaults.");
+});
+
+/* =========================================================
+   16. PROFILE / ACCOUNT
+   ========================================================= */
+function renderAccount(){
+  const a = state.account, box = $("#acctBox"); box.textContent = "";
+  const img = el("img",{alt:"", src: a.avatar || "data:image/svg+xml;utf8," + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 40 40"><rect width="40" height="40" fill="#0b1430"/><circle cx="20" cy="15" r="7" fill="#3fe0ff"/><path d="M6 36c2-8 8-11 14-11s12 3 14 11" fill="#3fe0ff"/></svg>')});
+  box.append(img, el("div",{class:"who"}, el("b",{text: displayName() || "Hunter"}),
+    el("small",{text: a.mode==="cloud" ? `Signed in with Claude${a.name ? " as " + a.name : ""} · synced across your devices` : "Local profile · saved in this browser only"}),
+    currentTitle() ? el("small",{style:"display:block;color:var(--cyan);letter-spacing:.12em", text:`TITLE · ${currentTitle().toUpperCase()}`}) : null));
+}
+$("#nameForm").addEventListener("submit", e=>{
+  e.preventDefault();
+  const name = $("#sName").value.trim().replace(/\s+/g," ");
+  $("#sName").classList.remove("bad"); $("#eName").textContent = "";
+  if(name && !/^[\p{L}\p{N} ._'\-]{1,24}$/u.test(name)){ $("#sName").classList.add("bad"); $("#eName").textContent="Use letters, numbers, spaces, . _ ' or - (max 24)."; return; }
+  state.profile.name = name; persist("profile"); renderWelcome(); renderAccount();
+  toast(name ? `Profile saved. Welcome back, ${name}.` : "Profile saved.");
+});
+function logOut(){
+  // ends this device's session: alerts, sounds and sync stop, then the sign-in screen returns
+  LS.del(KEYS.session); Persist.detach(); stopAllSound();
+  for(const b of ["#btnSignOut","#btnLogoutTop"]) $(b).disabled = true;
+  toast("Logging out…"); setTimeout(()=>location.reload(), 350);
+}
+$("#btnSignOut").addEventListener("click", logOut);
+$("#btnLogoutTop").addEventListener("click", logOut);
+$("#btnWipe").addEventListener("click", async e=>{
+  const b = e.currentTarget;
+  if(!b.dataset.armed){ b.dataset.armed="1"; b.textContent="Confirm Delete"; setTimeout(()=>{ if(b.isConnected){ delete b.dataset.armed; b.textContent="Delete Data"; } }, 5000); return; }
+  b.disabled = true; b.textContent = "Deleting…";
+  Persist.detach(); await Persist.wipe();
+  toast("All Kage Monark data deleted."); setTimeout(()=>location.reload(), 600);
+});
+async function saveBackupFile(json){
+  const name = `kage-monarch-backup-${dayKey()}.json`;
+  if(window.KageNative){ try{ const r = KageNative.saveFile(name, json); toast(r ? `Backup saved to Downloads: ${name}` : "Backup not saved.", r ? "" : "err"); }catch{ toast("Backup not saved.", "err"); } return; }
+  const c = window.claude;
+  if(c && typeof c.use === "function"){
+    const dl = await c.use("downloads").catch(()=>null);
+    if(dl){ try{ await dl.save({filename:name, data:new Blob([json], {type:"application/json"})}); toast("Backup saved."); return; }catch(e){ if(e && e.code && /cancel|declin|denied/i.test(e.code)) { toast("Backup not saved."); return; } } }
+  }
+  let framed = false; try{ framed = window.top !== window.self; }catch{ framed = true; }
+  if(!framed){
+    const a = el("a",{href:URL.createObjectURL(new Blob([json], {type:"application/json"})), download:name}); document.body.append(a); a.click(); a.remove();
+    setTimeout(()=>URL.revokeObjectURL(a.href), 2000); toast("Backup downloaded."); return;
+  }
+  try{ await navigator.clipboard.writeText(json); toast("Backup copied. Paste it into a .json file to keep it."); }
+  catch{ toast("Couldn't save the backup in this view.", "err"); }
+}
+$("#btnExport").addEventListener("click", ()=>{
+  const data = { app:"JARVIS_Shadow_Reminder", version:3, exportedAt:new Date().toISOString(), reminders:state.reminders, quests:state.quests, daily:state.daily, player:state.player, profile:state.profile };
+  saveBackupFile(JSON.stringify(data,null,2));
+});
+$("#btnImport").addEventListener("click", ()=>$("#importFile").click());
+$("#importFile").addEventListener("change", async e=>{
+  const f = e.target.files[0]; e.target.value=""; if(!f) return;
+  try{
+    const data = JSON.parse(await f.text());
+    const rems = (Array.isArray(data) ? data : data.reminders || []).map(normalizeReminder).filter(Boolean);
+    const have = new Set(state.reminders.map(r=>r.id)); const addR = rems.filter(r=>!have.has(r.id));
+    state.reminders.push(...addR);
+    let addQ = 0;
+    if(Array.isArray(data.quests)){ const ids = new Set(state.quests.map(q=>q.id)); for(const q of data.quests.map(normalizeQuest).filter(Boolean)) if(!ids.has(q.id)){ state.quests.push(q); addQ++; } }
+    if(data.daily && Array.isArray(data.daily.goals)){ const names = new Set(state.daily.goals.map(g=>g.title.toLowerCase())); for(const g of data.daily.goals.map(normalizeGoal).filter(Boolean)) if(!names.has(g.title.toLowerCase()) && state.daily.goals.length<12) state.daily.goals.push(g); persist("daily"); }
+    if(data.player && Number(data.player.xp) > state.player.xp){ state.player.xp = Math.floor(Number(data.player.xp)); persist("player"); syncLastLevel(); }
+    persist("reminders"); persist("quests"); renderAll();
+    toast(`Imported ${addR.length} reminder${addR.length===1?"":"s"} and ${addQ} quest${addQ===1?"":"s"}.`);
+  }catch{ toast("That file isn't a valid Kage Monark backup.", "err"); }
+});
+
+/* =========================================================
+   17. DIAGNOSTICS (real values only)
+   ========================================================= */
+function setDiag(id, text, s){ const d=$(id); d.dataset.s = s||""; d.querySelector("span").textContent = text; }
+let battery = null;
+if(navigator.getBattery){ navigator.getBattery().then(b=>{ battery=b; ["levelchange","chargingchange"].forEach(ev=>b.addEventListener(ev, renderDiagnostics)); renderDiagnostics(); }).catch(()=>{}); }
+function renderDiagnostics(){
+  if(!booted) return;
+  const a = state.account, online = navigator.onLine;
+  setDiag("#dAcct", a.mode==="cloud" ? "Claude account verified" : a.mode==="local" ? "Local profile" : "Checking…", a.mode==="cloud"?"ok":"warn");
+  setDiag("#dSync", a.mode==="cloud" ? (syncState==="err" ? "Sync error · retrying" : "Synced to your account") : "This browser only", a.mode==="cloud" ? (syncState==="err"?"bad":"ok") : "warn");
+  setDiag("#dNet", online ? "Online" : "Offline", online?"ok":"warn");
+  $("#brand").classList.toggle("offline", !online);
+  $("#sysState").textContent = online ? "ONLINE" : "ONLINE · OFFLINE MODE";
+  if(window.KageNative){ let st = {}; try{ st = JSON.parse(KageNative.status()); }catch{}
+    setDiag("#dNotif", st.notif ? "Allowed (Android)" : "Blocked · tap Alarm Settings", st.notif ? "ok" : "bad"); }
+  else if(!notifSupported) setDiag("#dNotif","Not supported","bad");
+  else { const p = Notification.permission; setDiag("#dNotif", p==="granted" ? (notifFallback ? "Allowed · page alerts only" : "Allowed") : p==="denied" ? "Blocked" : "Not requested", p==="granted" && !notifFallback ? "ok" : p==="denied" ? "bad" : "warn"); }
+  if(!ttsSupported) setDiag("#dVoice","Not supported","bad");
+  else if(!voices.length) setDiag("#dVoice", performance.now() > 4000 ? "No voices installed" : "Loading voices…", performance.now() > 4000 ? "bad" : "warn");
+  else if(!userActivated) setDiag("#dVoice",`${voices.length} voices · tap once to arm`,"warn");
+  else setDiag("#dVoice", `Ready · ${voices.length} voices${state.profile.voiceOn?"":" (alerts off)"}`, state.profile.voiceOn?"ok":"warn");
+  if(battery){ const pct = Math.round(battery.level*100); setDiag("#dBatt", `${pct}%${battery.charging?" · charging":""}`, pct<=15 && !battery.charging ? "bad" : pct<=30 ? "warn" : "ok"); }
+  else setDiag("#dBatt","Not available in this browser","");
+  setDiag("#dScreen", `${window.innerWidth}×${window.innerHeight} view · ${screen.width}×${screen.height} screen`, "ok");
+  setDiag("#dAI","Not configured","");
+  const st = state.account.mode === "cloud" ? "Account database (synced)" : storeMode === "localStorage" ? "localStorage (IndexedDB blocked)" : "IndexedDB on this device";
+  setDiag("#dStore", st, state.account.mode === "cloud" || storeMode !== "localStorage" ? "ok" : "warn");
+  if(window.KageNative){ let st = {}; try{ st = JSON.parse(KageNative.status()); }catch{}
+    setDiag("#dBg", st.exact ? `Android alarms · ${st.count||0} armed · work when closed` : "Exact alarms blocked · tap Alarm Settings", st.exact ? "ok" : "bad"); }
+  else setDiag("#dBg", Bg.sw === "active" ? (Bg.triggers ? "Service worker · scheduled alarms" : "Service worker active") : Bg.sw === "checking" ? "Checking…" : Bg.sw === "unsupported" ? "Not supported" : "Not available on this host", Bg.sw === "active" ? "ok" : "warn");
+  $("#btnInstall").hidden = !Bg.canInstall;
+  renderWatch(); renderChips(); renderNotifyButton(); renderDest();
+}
+function renderWatch(){
+  if(!booted) return;
+  const pending = state.reminders.filter(r=>!r.done && !r.alerted).length;
+  setDiag("#dWatch", lastCheck ? `Active · ${pending} armed · ${new Date(lastCheck).toLocaleTimeString([], {hour:"2-digit",minute:"2-digit",second:"2-digit"})}` : "Starts after sign-in", lastCheck?"ok":"warn");
+}
+$("#btnDiagRefresh").addEventListener("click", ()=>{ checkAll(); renderDiagnostics(); toast("Diagnostics refreshed."); });
+addEventListener("online", ()=>{ renderDiagnostics(); if(entered) toast("Connection restored."); });
+addEventListener("offline", ()=>{ renderDiagnostics(); if(entered) toast("You're offline. Reminders still work.", "err"); });
+let rT; addEventListener("resize", ()=>{ clearTimeout(rT); rT=setTimeout(()=>{ renderDiagnostics(); fx.resize(); }, 150); });
+
+/* =========================================================
+   18. BACKGROUND FX (light particles, ~30fps, pauses when hidden)
+   ========================================================= */
+const fx = (() => {
+  const c = $("#fx"), ctx = c.getContext("2d");
+  const reduce = matchMedia("(prefers-reduced-motion: reduce)").matches;
+  let w=0,h=0,parts=[],raf=null,last=0;
+  function spawn(any){ return { x:Math.random()*w, y: any ? Math.random()*h : h+10, r:Math.random()*1.6+.4, vy:-(Math.random()*.25+.06), vx:(Math.random()-.5)*.12,
+      a:Math.random()*.6+.2, hue: Math.random()<.6 ? "63,224,255" : "155,92,255", tw:Math.random()*Math.PI*2 }; }
+  function resize(){
+    const dpr = Math.min(window.devicePixelRatio||1, 2); w = innerWidth; h = innerHeight;
+    c.width = w*dpr; c.height = h*dpr; ctx.setTransform(dpr,0,0,dpr,0,0);
+    parts = Array.from({length: Math.round(Math.min(60, (w*h)/26000))}, ()=>spawn(true));
+    if(reduce) draw();
+  }
+  function draw(){
+    ctx.clearRect(0,0,w,h);
+    for(const p of parts){
+      p.x += p.vx; p.y += p.vy; p.tw += .02;
+      if(p.y < -10) Object.assign(p, spawn(false));
+      const a = p.a * (.6 + .4*Math.sin(p.tw));
+      ctx.beginPath(); ctx.fillStyle = `rgba(${p.hue},${a})`; ctx.shadowColor = `rgba(${p.hue},${a})`; ctx.shadowBlur = 8;
+      ctx.arc(p.x, p.y, p.r, 0, Math.PI*2); ctx.fill();
+    }
+  }
+  function loop(t){ if(t-last > 33){ draw(); last=t; } raf = requestAnimationFrame(loop); }
+  function start(){ if(!reduce && !raf) raf = requestAnimationFrame(loop); }
+  function stop(){ if(raf){ cancelAnimationFrame(raf); raf=null; } }
+  resize(); start();
+  document.addEventListener("visibilitychange", ()=> document.hidden ? stop() : start());
+  return { resize };
+})();
+
+/* =========================================================
+   18b. ADMIN — owner only. Settings live in the shared document
+   admin/config: everyone reads it, only the owner can write it
+   (enforced by the database rules, not just by hiding the tab).
+   ========================================================= */
+const Admin = (() => {
+  let db = null, studioLoaded = false;
+  const STUDIO_B64 = "__STUDIO_B64__";
+  const isOwner = () => state.account.mode === "cloud" && state.account.owner;
+  function attach(_db, owner){
+    db = _db;
+    $("#tabAdmin").hidden = !owner;
+    db.doc("admin/config").onSnapshot(snap => {
+      state.admin = normalizeAdmin(snap.exists ? snap.data() : null);
+      if(entered){ renderPlayer(); render(); }
+    }, () => {});
+    render();
+  }
+  function draft(){ return normalizeAdmin({ style: $("#adStyle").value, award: $("#adAward").value, crimsonFlames: $("#adFlames").checked, rankImages: $("#adImages").checked }); }
+  function render(){
+    if(!isOwner()) return;
+    const a = state.admin;
+    if(document.activeElement !== $("#adStyle")) $("#adStyle").value = a.style;
+    if(document.activeElement !== $("#adAward")) $("#adAward").value = a.award;
+    $("#adFlames").checked = a.crimsonFlames; $("#adImages").checked = a.rankImages;
+    const box = $("#adNow"); box.textContent = "";
+    const lvl = levelInfo(state.player.xp).lvl;
+    const rows = [
+      ["Message style", a.style === "rank" ? "Kage Monark rank colors" : "Level colors"],
+      ["Your panel right now", SysMsg.themeName(themeFor(lvl))],
+      ["Rank images", a.style==="rank" && a.rankImages ? "On (50%)" : a.rankImages ? "On in rank style" : "Off"],
+      ["C-Rank flames", a.crimsonFlames ? "On" : "Off"],
+      ["Award line", a.award || "Hidden"]
+    ];
+    for(const [k,v] of rows) box.append(el("div",{class:"row"}, el("div",{class:"lbl", text:k}), el("span",{class:"pill", "data-s":"ok", text:v})));
+  }
+  async function save(){
+    if(!isOwner() || !db){ toast("Only the owner can change admin settings.", "err"); return; }
+    const cfg = draft(), btn = $("#adSave");
+    btn.disabled = true; $("#adStatus").textContent = "Saving…";
+    try{
+      await db.doc("admin/config").set({ ...cfg, updatedAt: Date.now() });
+      state.admin = cfg; renderPlayer(); render();
+      $("#adStatus").textContent = "Saved. The live app now uses these settings.";
+      toast("Admin settings saved to the app.");
+    }catch(e){
+      $("#adStatus").textContent = "Couldn't save. Only the owner can change these settings, and the connection must be online.";
+      toast("Admin settings were not saved.", "err");
+    }finally{ btn.disabled = false; }
+  }
+  function tryIt(){
+    if(SysMsg.playing){ toast("A System Message is already on screen."); return; }
+    const live = state.admin; state.admin = draft();           // preview the unsaved draft only
+    previewMsg(state.admin.style === "rank" ? "rank" : "quest", 12);
+    setTimeout(() => { state.admin = live; }, 120);
+  }
+  function openStudio(){
+    if(studioLoaded) return; studioLoaded = true;
+    try{
+      const html = new TextDecoder().decode(Uint8Array.from(atob(STUDIO_B64), c => c.charCodeAt(0)));
+      $("#studio").srcdoc = '<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head><body>' + html +
+        '<scr' + 'ipt>new ResizeObserver(function(){var w=document.querySelector(".wrap");parent.postMessage({monarkStudioHeight:Math.ceil((w?w.getBoundingClientRect().bottom:document.documentElement.scrollHeight)+8)},"*")}).observe(document.body)</scr' + 'ipt></body></html>';
+    }catch{ studioLoaded = false; toast("Kage Monark Studio couldn't load in this view.", "err"); }
+  }
+  addEventListener("message", e => {
+    if(e.source === $("#studio").contentWindow && e.data && typeof e.data.monarkStudioHeight === "number")
+      $("#studio").style.height = Math.max(500, Math.min(4000, e.data.monarkStudioHeight)) + "px";
+  });
+  $("#adSave").addEventListener("click", save);
+  $("#adTry").addEventListener("click", tryIt);
+  $("#adReset").addEventListener("click", () => {
+    $("#adStyle").value = ADMIN_DEFAULTS.style; $("#adAward").value = ADMIN_DEFAULTS.award; $("#adFlames").checked = ADMIN_DEFAULTS.crimsonFlames; $("#adImages").checked = ADMIN_DEFAULTS.rankImages;
+    $("#adStatus").textContent = "Defaults restored in the form. Press Save to App to apply them.";
+  });
+  return { attach, render, openStudio, isOwner };
+})();
+
+/* =========================================================
+   19. IDENTITY GATE — real sign-in through the viewer's Claude account
+   ========================================================= */
+let caps = { user:null, db:null }, identity = null;
+function setIdent(kind, title, sub, avatar){
+  const box = $("#ident"); box.textContent = "";
+  box.append(kind==="spin" ? el("div",{class:"spinner","aria-hidden":"true"}) : el("img",{alt:"", src:avatar}),
+    el("div",{class:"who"}, el("b",{text:title}), el("small",{text:sub})));
+}
+const LOCAL_AVATAR = "data:image/svg+xml;utf8," + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 40 40"><rect width="40" height="40" fill="#0b1430"/><path d="M20 6l12 5v8c0 8-5 13-12 15-7-2-12-7-12-15v-8z" fill="none" stroke="#3fe0ff" stroke-width="2"/><path d="M15 20l4 4 7-8" fill="none" stroke="#3fe0ff" stroke-width="2"/></svg>');
+async function resolveCaps(){
+  const c = window.claude;
+  if(!c || typeof c.use !== "function") return { user:null, db:null };
+  const [user, db] = await Promise.all([ c.use("user").catch(()=>null), c.use("db").catch(()=>null) ]);
+  return { user, db };
+}
+async function initGate(){
+  caps = await resolveCaps();
+  const me = caps.user ? await caps.user.me().catch(()=>null) : null;
+  identity = me && me.id ? me : null;
+  const session = LS.get(KEYS.session, null);
+  const btn = $("#btnInit");
+  if(identity && caps.db){
+    const nm = identity.name || "Hunter";
+    $("#gateHello").textContent = `Welcome Back, ${displayName() || identity.name || "Hunter"}`;
+    setIdent("img", nm, "Claude account verified · your data syncs privately", identity.avatarUrl);
+    $("#gateLocal").hidden = true;
+    $("#gateFine").textContent = "Sign-in is handled by your Claude account. Kage Monark never sees or stores a password.";
+    btn.disabled = false;
+    if(session && session.mode==="cloud" && session.uid===identity.id) return enter("cloud", true);
+  } else {
+    if(window.KageNative){ setIdent("img", "KAGE MONARK · Android", "Your data is saved on this phone", LOCAL_AVATAR); $("#gateFine").textContent = "Alarms ring even when the app is closed."; }
+    else { setIdent("img", "No Claude sign-in on this view", "Kage Monark will save to this browser only", LOCAL_AVATAR);
+    $("#gateFine").textContent = "Open this link while signed in to Claude to sync across your phone and computer."; }
+    btn.disabled = false; $("#btnInitTxt").textContent = "INITIALIZE KAGE MONARK";
+    if(session && session.mode==="local") return enter("local", true);
+  }
+}
+async function enter(mode, auto){
+  const btn = $("#btnInit"), msg = $("#gateMsg");
+  btn.disabled = true; $("#btnLocal").disabled = true; msg.classList.remove("err");
+  msg.textContent = mode==="cloud" ? "Synchronizing your system…" : "Initializing…";
+  try{
+    if(mode==="cloud"){
+      const res = await Persist.attach(caps.db, identity.id);
+      state.account = { mode:"cloud", uid:identity.id, name:identity.name||"", avatar:identity.avatarUrl, email:null, owner: !!identity.isOwner };
+      Admin.attach(caps.db, !!identity.isOwner);
+      LS.set(KEYS.session, {mode:"cloud", uid:identity.id});
+      if(res.importedLocal) setTimeout(()=>toast("Your saved reminders and quests now sync to your account."), 900);
+    } else {
+      state.account = { mode:"local", uid:null, name:"", avatar:LOCAL_AVATAR, email:null, owner:false };
+      storeMode = await Persist.loadLocal();
+      LS.set(KEYS.session, {mode:"local"});
+    }
+  }catch(e){
+    msg.classList.add("err"); msg.textContent = "Couldn't reach your account data. Check your connection and try again.";
+    btn.disabled = false; $("#btnLocal").disabled = false; return;
+  }
+  entered = true;
+  $("#app").hidden = false;
+  syncLastLevel();
+  rolloverDaily(); checkGoalAwards();
+  SysMsg.restore(state.account.uid);
+  resetForm(); renderAll(); renderSettings(); renderDiagnostics();
+  const g = $("#gate"); g.classList.add("leaving"); setTimeout(()=>g.remove(), 750);
+  if(!auto){ sfx("level"); speak(`Identity verified. Welcome back, ${displayName() || "Hunter"}. Kage Monark is online.`); }
+  const h = (location.hash||"").slice(1); if(TABS.includes(h)) setTab(h);
+  // opened from a notification tap (installed / self-hosted app): ?quest=<kind>:<id>&action=done|snooze|open
+  try{ const qp = new URLSearchParams(location.search), qv = qp.get("quest");
+    if(qv){ const [kind, ref] = qv.split(":"); setTimeout(()=>SysMsg.handleAlertAction({ type:"reminder", kind: kind === "quest" ? "quest" : "reminder", ref }, ["done","snooze"].includes(qp.get("action")) ? qp.get("action") : "open"), 600); } }catch{}
+  if(window.KageNative) setTimeout(window.kmNativeDrain, 500);
+  setTimeout(checkAll, 900);
+  setInterval(checkAll, 10000);
+  Bg.sync();
+}
+$("#btnInit").addEventListener("click", ()=> enter(identity && caps.db ? "cloud" : "local", false));
+$("#btnLocal").addEventListener("click", ()=> enter("local", false));
+
+/* =========================================================
+   20. BOOT
+   ========================================================= */
+/* Android app: apply buttons pressed on the phone's alarm screen while the app was closed */
+function applyNativeAction(a){
+  const today = dayKey();
+  if(a.kind === "daily"){
+    const d = state.daily;
+    if(a.action === "snooze" && a.ref === today){ d.snoozeN = (d.snoozeDay === today ? (d.snoozeN||0) : 0) + 1; d.snoozeDay = today; d.snoozeUntil = Number(a.until) || Date.now() + 600000; if(a.type === "daily-pre") d.alertedPre = null; else d.alertedDue = null; }
+    else if(a.ref === today){ if(a.type === "daily-pre") d.alertedPre = today; else { d.alertedDue = today; d.alertedPre = today; } }
+    persist("daily");
+    if(a.action === "open") setTab("home");
+    return;
+  }
+  const isQuest = a.kind === "quest", item = (isQuest ? state.quests : state.reminders).find(x => x.id === a.ref);
+  if(!item) return;
+  if(a.action === "done"){ if(!item.done){ if(isQuest) completeQuest(item.id); else setDone(item.id, true); } item.alerted = true; persist(isQuest ? "quests" : "reminders"); }
+  else if(a.action === "snooze"){ if(!item.done){ item.due = Number(a.until) || Date.now() + 600000; item.alerted = false; persist(isQuest ? "quests" : "reminders"); } }
+  else { if(!item.alerted && item.due <= (Number(a.at) || Date.now())){ item.alerted = true; persist(isQuest ? "quests" : "reminders"); }
+    if(a.action === "open") SysMsg.handleAlertAction({ type:"reminder", kind:a.kind, ref:a.ref }, "open"); }
+}
+window.kmNativeDrain = function(){
+  if(!entered || !window.KageNative) return;
+  let list = []; try{ list = JSON.parse(KageNative.takeActions() || "[]"); }catch{}
+  for(const a of list) try{ applyNativeAction(a); }catch{}
+  if(list.length){ renderAll(); Bg.sync(); }
+  checkAll();
+};
+function renderAll(){ renderReminders(); renderNext(); renderDaily(); renderQuests(); renderPlayer(); renderNotifs(); renderWelcome(); renderAccount(); renderSettings(); renderChips(); renderWatch(); }
+booted = true;
+if(!LS.ok) $("#storageBanner").hidden = false;
+tickClock(); setInterval(tickClock, 1000);
+Bg.init();
+$("#btnInstall").addEventListener("click", () => Bg.install());
+setTimeout(renderDiagnostics, 4200);
+setInterval(()=>{ if(entered && rolloverDaily()) renderDaily(); }, 60000);
+document.addEventListener("visibilitychange", ()=>{ if(!document.hidden && entered){ checkAll(); renderNotifyButton(); renderDiagnostics(); } });
+addEventListener("storage", e=>{
+  if(!entered || Persist.mode!=="local") return;
+  if(e.key===KEYS.reminders){ state.reminders = (LS.get(KEYS.reminders,[])||[]).map(normalizeReminder).filter(Boolean); }
+  else if(e.key===KEYS.quests){ state.quests = (LS.get(KEYS.quests,[])||[]).map(normalizeQuest).filter(Boolean); }
+  else if(e.key===KEYS.player){ state.player = normalizePlayer(LS.get(KEYS.player,{})); }
+  else if(e.key===KEYS.profile){ state.profile = normalizeProfile(LS.get(KEYS.profile,{})); }
+  else if(e.key===KEYS.daily){ state.daily = normalizeDaily(LS.get(KEYS.daily,null)); }
+  else if(e.key===KEYS.notifs){ state.notifs = normalizeNotifs(LS.get(KEYS.notifs,[])); }
+  else return;
+  renderAll();
+});
+initGate();
+</script>

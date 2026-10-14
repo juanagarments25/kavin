@@ -1,0 +1,463 @@
+<link rel="manifest" href="manifest.webmanifest">
+<canvas id="fx" aria-hidden="true"></canvas>
+<div class="scan" aria-hidden="true"></div>
+
+<!-- ================= IDENTITY GATE ================= -->
+<section class="gate" id="gate" aria-label="Sign in to Kage Monark">
+  <div class="holo h1" aria-hidden="true"></div><div class="holo h2" aria-hidden="true"></div><div class="holo h3" aria-hidden="true"></div>
+  <div class="floor" aria-hidden="true"></div>
+  <div class="gate-inner">
+    <div class="gate-art" aria-hidden="true">
+      <!-- Hunter portrait (supplied by the owner), faded into the scene -->
+      <div class="hunter-photo"><img src="data:image/webp;base64,__HUNTER_B64__" alt="" width="640" height="640" decoding="async"></div>
+      <svg width="0" height="0" style="position:absolute" aria-hidden="true"><defs>
+        <filter id="hGlow" x="-50%" y="-50%" width="200%" height="200%"><feGaussianBlur stdDeviation="3" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
+      </defs></svg>
+      <div class="side-words"><span>ANALYZE</span><span>ASSIST</span><span>SUPPORT</span><span>SIMPLIFY</span></div>
+      <div class="logo-ring">
+        <svg viewBox="0 0 200 200">
+          <g class="spin-a" fill="none" filter="url(#hGlow)">
+            <circle cx="100" cy="100" r="96" stroke="#3fe0ff" stroke-width=".8" stroke-dasharray="1 4" opacity=".8"/>
+            <circle cx="100" cy="100" r="90" stroke="#2f8bff" stroke-width="5" stroke-dasharray="70 20 30 20 50 40" opacity=".9"/>
+          </g>
+          <g class="spin-b" fill="none">
+            <circle cx="100" cy="100" r="80" stroke="#3fe0ff" stroke-width="1.6" stroke-dasharray="120 14 8 14" opacity=".9"/>
+            <circle cx="100" cy="100" r="74" stroke="#9fe9ff" stroke-width=".6" opacity=".6"/>
+          </g>
+          <circle cx="100" cy="100" r="68" fill="rgba(3,10,30,.85)" stroke="#3fe0ff" stroke-width="1.4"/>
+          <g class="spin-c" stroke="#3fe0ff" stroke-width="1" opacity=".5" fill="none"><path d="M100 26 v10 M100 164 v10 M26 100 h10 M164 100 h10"/></g>
+        </svg>
+        <div class="word"><b>KAGE<br>MONARK</b><small>SYSTEM</small></div>
+      </div>
+      <div class="tagline"><span>YOUR</span><span>PERSONAL</span><span>AI ASSISTANT</span></div>
+    </div>
+
+    <div class="gate-card win">
+      <h2 id="gateHello">Welcome Back, Hunter</h2>
+      <p class="sub">Your System Awaits</p>
+      <div class="sysnote"><i>!</i><span>IDENTITY VERIFICATION REQUIRED</span></div>
+      <div class="ident" id="ident" aria-live="polite">
+        <div class="spinner" aria-hidden="true"></div>
+        <div class="who"><b>Verifying identity…</b><small>Checking your Claude sign-in</small></div>
+      </div>
+      <div class="btn-wrap">
+        <button class="btn-init" id="btnInit" type="button" disabled>
+          <svg class="reactor" viewBox="0 0 30 30" aria-hidden="true"><circle cx="15" cy="15" r="13" fill="none" stroke="#bfefff" stroke-width="1.5"/><circle cx="15" cy="15" r="8" fill="none" stroke="#3fe0ff" stroke-width="2"/><path d="M15 7 L21 18 L9 18Z" fill="none" stroke="#eaf9ff" stroke-width="1.4"/><circle cx="15" cy="15" r="2.5" fill="#fff"/></svg>
+          <span id="btnInitTxt">INITIALIZE KAGE MONARK</span>
+          <span class="arr" aria-hidden="true">→</span>
+        </button>
+      </div>
+      <p class="gate-msg" id="gateMsg" role="status"></p>
+      <div id="gateLocal" hidden>
+        <div class="or">OR</div>
+        <button class="gate-alt" type="button" id="btnLocal">Continue on this device only</button>
+      </div>
+      <p class="gate-fine" id="gateFine">Sign-in is handled by your Claude account. Kage Monark never sees or stores a password.</p>
+    </div>
+  </div>
+  <div class="gate-foot" aria-hidden="true">SECURE<span>•</span>PRIVATE<span>•</span>ALWAYS WITH YOU</div>
+</section>
+
+<!-- ================= DASHBOARD ================= -->
+<div class="wrap" id="app" hidden>
+  <header class="topbar">
+    <div class="brand" id="brand"><span class="dot"></span>KAGE MONARK SYSTEM — ONLINE</div>
+    <nav class="tabs" aria-label="Sections">
+      <button class="tab" type="button" data-tab="home" aria-current="page"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 11l9-7 9 7v9a1 1 0 0 1-1 1h-5v-6H9v6H4a1 1 0 0 1-1-1z"/></svg>HOME</button>
+      <button class="tab" type="button" data-tab="quests" aria-current="false"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2l3 6 6 .9-4.5 4.3 1 6.3L12 16.6 6.5 19.5l1-6.3L3 8.9 9 8z"/></svg>QUESTS</button>
+      <button class="tab" type="button" data-tab="alerts" aria-current="false"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 8a6 6 0 1 0-12 0c0 7-3 9-3 9h18s-3-2-3-9M13.7 21a2 2 0 0 1-3.4 0"/></svg>ALERTS<span class="n" id="unreadBadge" hidden>0</span></button>
+      <button class="tab" type="button" data-tab="profile" aria-current="false"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="8" r="4"/><path d="M4 21c0-4 4-6 8-6s8 2 8 6"/></svg>PROFILE</button>
+      <button class="tab" type="button" data-tab="admin" aria-current="false" id="tabAdmin" hidden><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2l8 4v6c0 5-3.5 8.5-8 10-4.5-1.5-8-5-8-10V6z"/><path d="M9 12l2 2 4-4"/></svg>ADMIN</button>
+    </nav>
+    <button class="btn sm logout" type="button" id="btnLogoutTop" aria-label="Log out of Kage Monark"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M15 4h3a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2h-3M10 17l-5-5 5-5M5 12h11"/></svg><span>LOG OUT</span></button>
+  </header>
+
+  <div class="banner" id="storageBanner" role="status" hidden>Browser storage is unavailable here (private mode or blocked). Kage Monark works, but nothing is saved after you close this tab.</div>
+
+  <!-- ===== HOME ===== -->
+  <main data-view="home">
+    <section class="hero win" aria-label="Status" id="hero">
+      <div class="rank-bg" aria-hidden="true"><i data-img="e"></i><i data-img="d"></i><i data-img="c"></i><i data-img="b"></i><i data-img="a"></i><i data-img="s"></i></div>
+      <div class="core" id="core" aria-hidden="true">
+        <svg viewBox="0 0 200 200">
+          <defs>
+            <radialGradient id="gCore" cx="50%" cy="50%" r="50%">
+              <stop offset="0%" stop-color="#ffffff" stop-opacity=".95"/><stop offset="22%" stop-color="#7ae8ff" stop-opacity=".85"/>
+              <stop offset="55%" stop-color="#6b3cff" stop-opacity=".45"/><stop offset="100%" stop-color="#1a0b4a" stop-opacity="0"/>
+            </radialGradient>
+            <linearGradient id="gRing" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#3fe0ff"/><stop offset="1" stop-color="#9b5cff"/></linearGradient>
+            <linearGradient id="gFlame" x1="0" y1="1" x2="0" y2="0"><stop offset="0" stop-color="#3fe0ff"/><stop offset=".6" stop-color="#9b5cff"/><stop offset="1" stop-color="#e9ddff"/></linearGradient>
+            <filter id="glow" x="-50%" y="-50%" width="200%" height="200%"><feGaussianBlur stdDeviation="2.4" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
+          </defs>
+          <circle class="pulse" cx="100" cy="100" r="74" fill="url(#gCore)" opacity=".7"/>
+          <g class="spin-a" filter="url(#glow)">
+            <circle cx="100" cy="100" r="94" fill="none" stroke="url(#gRing)" stroke-width="1.2" stroke-dasharray="2 6" opacity=".9"/>
+            <circle cx="100" cy="100" r="88" fill="none" stroke="#3fe0ff" stroke-width=".6" opacity=".45"/>
+            <path d="M100 4 l4 8 h-8z M196 100 l-8 4 v-8z M100 196 l-4 -8 h8z M4 100 l8 -4 v8z" fill="#9b5cff"/>
+          </g>
+          <g class="spin-b" filter="url(#glow)">
+            <circle cx="100" cy="100" r="76" fill="none" stroke="#9b5cff" stroke-width="2" stroke-dasharray="40 10 6 10" opacity=".85"/>
+            <g stroke="#7ae8ff" stroke-width="1.4" fill="none" opacity=".9">
+              <path d="M100 30 v8 M96 34 h8"/><path d="M160 64 l-6 5 M157 60 l1 8"/><path d="M164 128 l-8 -2 M162 122 l-3 8"/>
+              <path d="M100 170 v-8 M95 166 l10 0"/><path d="M40 128 l7 -4 M38 122 l5 7"/><path d="M38 70 l8 3 M44 64 l-2 9"/>
+            </g>
+          </g>
+          <g class="spin-c">
+            <polygon points="100,46 147,73 147,127 100,154 53,127 53,73" fill="none" stroke="#3fe0ff" stroke-width="1" opacity=".55"/>
+            <polygon points="100,154 53,73 147,73" fill="none" stroke="#9b5cff" stroke-width=".8" opacity=".5"/>
+            <polygon points="100,46 147,127 53,127" fill="none" stroke="#9b5cff" stroke-width=".8" opacity=".5"/>
+          </g>
+          <g class="flame" filter="url(#glow)">
+            <path d="M72 124 L76 92 L86 106 L92 80 L100 100 L108 80 L114 106 L124 92 L128 124 Z" fill="url(#gFlame)" opacity=".92"/>
+            <rect x="72" y="124" width="56" height="6" rx="2" fill="#3fe0ff" opacity=".9"/>
+            <circle cx="100" cy="114" r="4" fill="#fff"/>
+          </g>
+        </svg>
+      </div>
+      <div class="greet">
+        <div class="kicker">KAGE MONARK SYSTEM · QUEST REMINDERS</div>
+        <h1 id="welcome">WELCOME BACK, HUNTER</h1>
+        <div class="sys">KAGE MONARK SYSTEM — <b id="sysState">ONLINE</b></div>
+        <div class="rank" title="Hunter progression">
+          <span class="badge" id="rankBadge">E-RANK · LV 1</span>
+          <div class="xpbar" role="progressbar" aria-label="XP to next level" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" id="xpbar"><i id="xpfill"></i></div>
+          <span class="xptext" id="xptext">0 / 100 XP</span>
+        </div>
+        <div class="chips"><span class="stat" id="chipAcct">Account</span><span class="stat" id="chipNotif">Notifications</span></div>
+      </div>
+      <div class="clock" aria-live="off">
+        <div class="time" id="clockTime">--:--:--</div>
+        <div class="date" id="clockDate">—</div>
+        <div class="next" id="nextUp"></div>
+      </div>
+    </section>
+
+    <div class="grid">
+      <div class="col">
+        <section class="win" aria-labelledby="formTitle">
+          <div class="win-head"><h2 class="win-title" id="formTitle">NEW REMINDER</h2></div>
+          <div class="win-body">
+            <form class="form" id="remForm" novalidate>
+              <label class="f full">Title
+                <input class="in" id="fTitle" maxlength="120" autocomplete="off" placeholder="e.g. Submit project report">
+                <span class="err" id="eTitle"></span>
+              </label>
+              <label class="f">Date<input class="in" id="fDate" type="date"></label>
+              <label class="f">Time<input class="in" id="fTime" type="time"></label>
+              <label class="f full">Quest rank <span style="color:var(--dim);letter-spacing:.08em">(optional · C-Rank burns crimson)</span><select class="in" id="fRank"><option value="">None</option><option value="E">E-Rank</option><option value="D">D-Rank</option><option value="C">C-Rank (crimson)</option><option value="B">B-Rank</option><option value="A">A-Rank</option><option value="S">S-Rank</option></select></label>
+              <span class="err full" id="eWhen"></span>
+              <label class="f full">Notes <span style="color:var(--dim);letter-spacing:.08em">(optional)</span>
+                <textarea class="in" id="fNotes" maxlength="1000" placeholder="Details, links, anything to remember"></textarea>
+              </label>
+              <div class="form-actions full">
+                <button class="btn ghost" type="button" id="btnCancelEdit" hidden>Cancel Edit</button>
+                <button class="btn primary" type="submit" id="btnSave">Create Reminder</button>
+              </div>
+            </form>
+          </div>
+        </section>
+        <section class="win" aria-labelledby="listTitle">
+          <div class="win-head">
+            <h2 class="win-title" id="listTitle">REMINDERS</h2>
+            <button class="btn sm ghost" type="button" id="btnClearDone">Clear Completed</button>
+          </div>
+          <div class="win-body">
+            <div class="filters" role="group" aria-label="Filter reminders" id="filters">
+              <button class="chip" type="button" data-f="all" aria-pressed="true">All <span class="n" data-c="all">0</span></button>
+              <button class="chip" type="button" data-f="pending" aria-pressed="false">Pending <span class="n" data-c="pending">0</span></button>
+              <button class="chip due-chip" type="button" data-f="due" aria-pressed="false">Due / Overdue <span class="n" data-c="due">0</span></button>
+              <button class="chip" type="button" data-f="done" aria-pressed="false">Completed <span class="n" data-c="done">0</span></button>
+            </div>
+            <div class="list" id="remList" aria-live="polite"></div>
+          </div>
+        </section>
+      </div>
+      <div class="col">
+        <section class="win" aria-labelledby="todayTitle">
+          <div class="win-head"><h2 class="win-title" id="todayTitle">DAILY QUEST</h2><button class="btn sm" type="button" data-goto="quests">Open Quest</button></div>
+          <div class="win-body today" id="todayBox"></div>
+        </section>
+        <section class="win" aria-labelledby="recentTitle">
+          <div class="win-head"><h2 class="win-title" id="recentTitle">NOTIFICATION CENTER</h2><button class="btn sm ghost" type="button" data-goto="alerts">View All</button></div>
+          <div class="win-body"><div class="nlist" id="recentList"></div></div>
+        </section>
+      </div>
+    </div>
+  </main>
+
+  <!-- ===== QUESTS ===== -->
+  <main data-view="quests" hidden>
+    <div class="grid">
+      <div class="col">
+        <div class="qi-glow">
+          <div class="qi-frame"><div class="qi-in">
+            <div class="qi-head"><div class="qi-bang"><span>!</span></div><div class="qi-title">QUEST INFO</div></div>
+            <p class="qi-intro">[Daily Quest: Complete Your Tasks has arrived.]</p>
+            <span class="qi-label">GOAL</span>
+            <div class="goals" id="goalList"></div>
+            <p class="qi-status" id="dailyStatus"></p>
+            <div class="qi-warn" id="dailyWarn"></div>
+          </div></div>
+          <div class="qi-bars" aria-hidden="true"><i></i><i></i><i></i></div>
+        </div>
+      </div>
+      <div class="col">
+        <section class="win" aria-labelledby="dsTitle">
+          <div class="win-head"><h2 class="win-title" id="dsTitle">QUEST SETTINGS</h2><span class="xptext">+10 XP PER GOAL · +20 CLEAR BONUS</span></div>
+          <div class="win-body set-grid">
+            <div class="set-row">
+              <label class="f">Deadline<input class="in" id="dDeadline" type="time"></label>
+              <label class="f">Remind me
+                <select class="in" id="dBefore">
+                  <option value="0">At deadline only</option><option value="15">15 min before</option><option value="30">30 min before</option>
+                  <option value="60">1 hour before</option><option value="120">2 hours before</option>
+                </select>
+              </label>
+            </div>
+            <form class="gadd" id="goalForm" novalidate>
+              <input class="in" id="gTitle" maxlength="60" placeholder="New goal, e.g. Squats" aria-label="Goal name" autocomplete="off">
+              <input class="in" id="gTarget" type="number" min="1" max="100000" inputmode="numeric" placeholder="Target" aria-label="Target amount">
+              <input class="in" id="gUnit" maxlength="12" placeholder="Unit" aria-label="Unit, optional" autocomplete="off">
+              <button class="btn primary" type="submit">Add Goal</button>
+            </form>
+          </div>
+        </section>
+        <section class="win" aria-labelledby="histTitle">
+          <div class="win-head"><h2 class="win-title" id="histTitle">QUEST HISTORY</h2><span class="xptext" id="streak"></span></div>
+          <div class="win-body"><div class="hist" id="hist"></div><p class="legend">Goals cleared per day, last 14 days. Missed days carry no penalty.</p></div>
+        </section>
+        <section class="win" aria-labelledby="questTitle">
+          <div class="win-head"><h2 class="win-title" id="questTitle">MAIN &amp; SIDE QUESTS</h2><span class="xptext" id="totalXp">TOTAL 0 XP</span></div>
+          <div class="win-body">
+            <form class="form qform" id="questForm" novalidate>
+              <label class="f full">Quest<input class="in" id="qTitle" maxlength="100" placeholder="e.g. Defeat the exam boss" autocomplete="off"></label>
+              <label class="f">Type<select class="in" id="qType"><option value="main">Main · 50 XP</option><option value="side">Side · 20 XP</option></select></label>
+              <label class="f">Quest rank<select class="in" id="qRank"><option value="">None</option><option value="E">E-Rank</option><option value="D">D-Rank</option><option value="C">C-Rank (crimson)</option><option value="B">B-Rank</option><option value="A">A-Rank</option><option value="S">S-Rank</option></select></label>
+              <label class="f">Due date <span style="color:var(--dim);letter-spacing:.08em">(optional)</span><input class="in" id="qDate" type="date"></label>
+              <label class="f">Due time<input class="in" id="qTime" type="time"></label>
+              <span class="err full" id="eQuest"></span>
+              <label class="f full">Description <span style="color:var(--dim);letter-spacing:.08em">(optional)</span><textarea class="in" id="qDesc" maxlength="400" placeholder="What must be done"></textarea></label>
+              <div class="form-actions full"><button class="btn ghost" type="button" id="qCancel" hidden>Cancel Edit</button><button class="btn primary" type="submit" id="qSave">Add Quest</button></div>
+            </form>
+            <div id="questList"></div>
+            <p class="xprules">Main and Side quests earn XP once. Reopening never removes XP, and completing again never adds more.</p>
+          </div>
+        </section>
+      </div>
+    </div>
+  </main>
+
+  <!-- ===== ALERTS ===== -->
+  <main data-view="alerts" hidden>
+    <div class="grid">
+      <div class="col">
+        <section class="win" aria-labelledby="ncTitle">
+          <div class="win-head"><h2 class="win-title" id="ncTitle">NOTIFICATION CENTER</h2>
+            <div style="display:flex;gap:6px;flex-wrap:wrap"><button class="btn sm ghost" type="button" id="btnReadAll">Mark All Read</button><button class="btn sm danger" type="button" id="btnClearN">Clear History</button></div>
+          </div>
+          <div class="win-body"><div class="nlist" id="nList"></div></div>
+        </section>
+      </div>
+      <div class="col">
+        <section class="win" aria-labelledby="nsTitle">
+          <div class="win-head"><h2 class="win-title" id="nsTitle">NOTIFICATION SETTINGS</h2><button class="btn sm" type="button" id="btnPreview">Preview Alert</button></div>
+          <div class="win-body set-grid">
+            <div class="row"><div class="lbl">Personal reminders<small>Quest Info alert when a reminder is due</small></div><label class="switch"><input type="checkbox" id="cReminder" aria-label="Personal reminder alerts"><i></i></label></div>
+            <div class="row"><div class="lbl">Daily quest alerts<small>Before the deadline and when it passes</small></div><label class="switch"><input type="checkbox" id="cDaily" aria-label="Daily quest alerts"><i></i></label></div>
+            <div class="row"><div class="lbl">Award messages<small>Quests, tasks, achievements, milestones and rewards</small></div><label class="switch"><input type="checkbox" id="cSystem" aria-label="Kage Monark award messages"><i></i></label></div>
+            <hr class="sep">
+            <div class="row"><div class="lbl">Alert chime<small>Short tone when an alert opens</small></div><label class="switch"><input type="checkbox" id="sChime" aria-label="Alert chime"><i></i></label></div>
+            <div class="row"><div class="lbl">Sound effects<small>Quiet tones for completions</small></div><label class="switch"><input type="checkbox" id="sSfx" aria-label="Sound effects"><i></i></label></div>
+            <div class="row"><div class="lbl">Voice alerts<small>Kage Monark reads alerts aloud</small></div><label class="switch"><input type="checkbox" id="sVoiceOn" aria-label="Voice alerts"><i></i></label></div>
+            <label class="f">Voice<select class="in" id="sVoice"><option value="">System default</option></select></label>
+            <label class="f">Speech rate <span id="sRateVal" style="color:var(--cyan)">1.0×</span><input type="range" id="sRate" min="0.6" max="1.6" step="0.1" value="1"></label>
+            <div class="form-actions" style="justify-content:flex-start"><button class="btn" type="button" id="btnVoiceTest">Test Voice</button><button class="btn" type="button" id="btnNotify">Enable Notifications</button><button class="btn" type="button" id="btnInstall" hidden>Install App</button></div>
+          </div>
+        </section>
+        <section class="win" aria-labelledby="destTitle">
+          <div class="win-head"><h2 class="win-title" id="destTitle">DELIVERY</h2></div>
+          <div class="win-body"><div class="dest" id="destList"></div>
+            <p class="note"><b>Alerts reach you while KAGE MONARK SYSTEM is open</b>, in this tab or in the background, with the Quest Panel, chime, voice and a system notification. Quests that came due while it was closed alert the moment you open it. Alarms with the browser fully closed need a push server, or a browser that supports scheduled notifications.</p>
+          </div>
+        </section>
+      </div>
+    </div>
+  </main>
+
+  <!-- ===== PROFILE ===== -->
+  <main data-view="profile" hidden>
+    <div class="grid">
+      <div class="col">
+        <section class="win" aria-labelledby="pTitle">
+          <div class="win-head"><h2 class="win-title" id="pTitle">HUNTER PROFILE</h2></div>
+          <div class="win-body set-grid">
+            <div class="acct" id="acctBox"></div>
+            <form class="set-grid" id="nameForm" novalidate>
+              <label class="f">Display name
+                <input class="in" id="sName" maxlength="24" autocomplete="nickname" placeholder="Hunter">
+                <span class="err" id="eName"></span>
+              </label>
+              <div class="form-actions"><button class="btn primary" type="submit">Save Name</button></div>
+            </form>
+            <hr class="sep">
+            <div class="row"><div class="lbl">Backup<small>Export or restore reminders, quests and XP</small></div>
+              <div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn sm" type="button" id="btnExport">Export</button><button class="btn sm" type="button" id="btnImport">Import</button><input type="file" id="importFile" accept="application/json,.json" hidden></div>
+            </div>
+            <div class="row"><div class="lbl">Log out<small>Lock Kage Monark and return to the sign-in screen</small></div><button class="btn" type="button" id="btnSignOut">Log Out</button></div>
+            <div class="row"><div class="lbl">Delete my data<small>Erase reminders, quests, XP, alerts and settings</small></div><button class="btn danger" type="button" id="btnWipe">Delete Data</button></div>
+          </div>
+        </section>
+      </div>
+      <div class="col">
+        <section class="win" aria-labelledby="lvsTitle">
+          <div class="win-head"><h2 class="win-title" id="lvsTitle">SYSTEM MESSAGE SETTINGS</h2><span class="xptext" id="lvThemeNow"></span></div>
+          <div class="win-body set-grid">
+            <div class="row"><div class="lbl">Repeat level-up panel<small>Off shows each level-up once</small></div><label class="switch"><input type="checkbox" id="lvRepeat" aria-label="Repeat level-up panel"><i></i></label></div>
+            <div class="set-row">
+              <label class="f">Level-up repetitions
+                <select class="in" id="lvReps"><option>1</option><option>2</option><option>3</option><option>5</option><option>7</option><option>10</option></select>
+              </label>
+              <label class="f">Effects
+                <select class="in" id="lvIntensity"><option value="high">High</option><option value="normal">Normal</option><option value="low">Low (battery saver)</option></select>
+              </label>
+            </div>
+            <label class="f">Level-up display time <span id="lvDurVal" style="color:var(--cyan)">1.8 s</span><input type="range" id="lvDur" min="0.8" max="4" step="0.1"></label>
+            <label class="f">Award message display time <span id="lvMsgDurVal" style="color:var(--cyan)">2.8 s</span><input type="range" id="lvMsgDur" min="1.5" max="8" step="0.1"></label>
+            <label class="f">Delay between <span id="lvDelayVal" style="color:var(--cyan)">0.3 s</span><input type="range" id="lvDelay" min="0" max="2" step="0.1"></label>
+            <label class="f">Animation speed <span id="lvSpdVal" style="color:var(--cyan)">1.0×</span><input type="range" id="lvSpd" min="0.5" max="2" step="0.1"></label>
+            <div class="row"><div class="lbl">Flame effects<small>Animated flames around the panel</small></div><label class="switch"><input type="checkbox" id="lvFlames" aria-label="Flame effects"><i></i></label></div>
+            <div class="row"><div class="lbl">System sound<small>Award, level-up and warning tones</small></div><label class="switch"><input type="checkbox" id="lvSound" aria-label="Level-up sound"><i></i></label></div>
+            <label class="f">Volume <span id="lvVolVal" style="color:var(--cyan)">60%</span><input type="range" id="lvVol" min="0" max="100" step="5"></label>
+            <label class="f">Panel theme
+              <select class="in" id="lvTheme"><option value="auto">Automatic by level</option><option value="blue">Blue</option><option value="purple">Purple</option><option value="red">Red</option><option value="gold">Gold</option><option value="monarch">Monarch</option></select>
+            </label>
+            <div>
+              <div class="thr">
+                <label class="f">Purple from<input class="in" id="thPurple" type="number" min="2" max="999" inputmode="numeric"></label>
+                <label class="f">Red from<input class="in" id="thRed" type="number" min="3" max="999" inputmode="numeric"></label>
+                <label class="f">Gold from<input class="in" id="thGold" type="number" min="4" max="999" inputmode="numeric"></label>
+                <label class="f">Monarch from<input class="in" id="thMonarch" type="number" min="5" max="999" inputmode="numeric"></label>
+              </div>
+              <span class="err" id="eThr"></span>
+            </div>
+            <hr class="sep">
+            <div class="form-actions" style="justify-content:flex-start;align-items:flex-end">
+              <label class="f" style="flex:1 1 180px">Preview message
+                <select class="in" id="lvPrevKind">
+                  <option value="level">Level up</option><option value="quest">Quest completed</option><option value="achievement">Achievement unlocked</option>
+                  <option value="daily">Daily quest cleared</option><option value="rank">Rank promotion</option><option value="milestone">Milestone achieved</option>
+                  <option value="task">Task completed</option><option value="special">Shadow System reward</option><option value="warning">Quest incomplete</option>
+                </select>
+              </label>
+              <label class="f" style="width:100px">At level<input class="in" id="lvPrevLvl" type="number" min="2" max="999" inputmode="numeric" value="10"></label>
+              <button class="btn primary" type="button" id="lvPreviewBtn">Preview</button>
+              <button class="btn ghost" type="button" id="lvResetBtn">Reset to Defaults</button>
+            </div>
+          </div>
+        </section>
+        <section class="win" aria-labelledby="diagTitle">
+          <div class="win-head"><h2 class="win-title" id="diagTitle">SYSTEM DIAGNOSTICS</h2><button class="btn sm ghost" type="button" id="btnDiagRefresh">Refresh</button></div>
+          <div class="win-body">
+            <div class="diag">
+              <div class="dg" id="dAcct"><small>ACCOUNT</small><span>—</span></div>
+              <div class="dg" id="dSync"><small>DATA SYNC</small><span>—</span></div>
+              <div class="dg" id="dNet"><small>CONNECTION</small><span>—</span></div>
+              <div class="dg" id="dNotif"><small>NOTIFICATIONS</small><span>—</span></div>
+              <div class="dg" id="dVoice"><small>VOICE ENGINE</small><span>—</span></div>
+              <div class="dg" id="dBatt"><small>BATTERY</small><span>—</span></div>
+              <div class="dg" id="dScreen"><small>SCREEN</small><span>—</span></div>
+              <div class="dg" id="dAI"><small>AI CONNECTION</small><span>—</span></div>
+              <div class="dg" id="dWatch"><small>REMINDER WATCH</small><span>—</span></div>
+              <div class="dg" id="dStore"><small>QUEST STORAGE</small><span>—</span></div>
+              <div class="dg" id="dBg"><small>BACKGROUND SERVICE</small><span>—</span></div>
+            </div>
+          </div>
+        </section>
+      </div>
+    </div>
+  </main>
+
+  <!-- ===== ADMIN (owner only) ===== -->
+  <main data-view="admin" hidden>
+    <div class="grid">
+      <div class="col">
+        <section class="win" aria-labelledby="adTitle">
+          <div class="win-head"><h2 class="win-title" id="adTitle">ADMIN · LIVE APP SETTINGS</h2><span class="pill" data-s="ok">OWNER ONLY</span></div>
+          <div class="win-body set-grid">
+            <p class="note" style="margin:0">Only the owner of this Kage Monark link sees this tab. Saved settings change the System Message panel in the live app. Nobody else can change them.</p>
+            <label class="f">Message style
+              <select class="in" id="adStyle">
+                <option value="level">Level colors: blue, purple, crimson, gold, monarch</option>
+                <option value="rank">Kage Monark rank colors: E blue, D cyan, C blood red, B orange, A electric, S purple</option>
+              </select>
+            </label>
+            <div class="row"><div class="lbl">Rank background images<small>Your rank's artwork at 50% opacity behind messages and the home panel</small></div><label class="switch"><input type="checkbox" id="adImages" aria-label="Rank background images"><i></i></label></div>
+            <div class="row"><div class="lbl">C-Rank crimson flames<small>Full looping flames on every C-Rank message (Kage Monark rank style)</small></div><label class="switch"><input type="checkbox" id="adFlames" aria-label="C-Rank crimson flames"><i></i></label></div>
+            <label class="f">Award line <span style="color:var(--dim);letter-spacing:.08em">(leave empty to hide)</span><input class="in" id="adAward" maxlength="40" autocomplete="off"></label>
+            <div class="form-actions" style="justify-content:flex-start">
+              <button class="btn primary" type="button" id="adSave">Save to App</button>
+              <button class="btn" type="button" id="adTry">Preview in App</button>
+              <button class="btn ghost" type="button" id="adReset">Restore Defaults</button>
+            </div>
+            <p class="note" id="adStatus" role="status" style="margin:0"></p>
+          </div>
+        </section>
+      </div>
+      <div class="col">
+        <section class="win" aria-labelledby="adNowTitle">
+          <div class="win-head"><h2 class="win-title" id="adNowTitle">CURRENTLY LIVE</h2></div>
+          <div class="win-body"><div class="dest" id="adNow"></div></div>
+        </section>
+      </div>
+    </div>
+    <section class="win" aria-labelledby="studioTitle" style="margin-top:18px">
+      <div class="win-head"><h2 class="win-title" id="studioTitle">KAGE MONARK STUDIO · DEMO</h2><span class="xptext">SANDBOX · DOES NOT CHANGE THE APP</span></div>
+      <div class="win-body" style="padding:0"><iframe id="studio" title="Kage Monark Studio demo" style="display:block;width:100%;height:1100px;border:0;background:#030305"></iframe></div>
+    </section>
+  </main>
+
+  <footer>KAGE MONARK SYSTEM · v4.0</footer>
+</div>
+
+<div class="toasts" id="toasts" aria-live="polite"></div>
+<!-- SHADOW SYSTEM MESSAGE: one reusable panel for every award, alert, warning and level-up -->
+<dialog id="lvDlg" class="lv t-blue" aria-labelledby="smTitle">
+  <div class="lv-stage" id="lvStage">
+    <canvas class="lv-embers" id="lvEmbers" aria-hidden="true"></canvas>
+    <div class="lv-aura" aria-hidden="true"></div>
+    <div class="lv-side l" aria-hidden="true"></div><div class="lv-side r" aria-hidden="true"></div>
+    <div class="lv-flames lv-f-top" aria-hidden="true"></div>
+    <div class="lv-flames lv-f-bottom" aria-hidden="true"></div>
+    <div class="lv-wrap">
+      <div class="lv-frame"><div class="lv-in">
+        <div class="rank-bg" aria-hidden="true"><i data-img="e"></i><i data-img="d"></i><i data-img="c"></i><i data-img="b"></i><i data-img="a"></i><i data-img="s"></i></div>
+        <svg class="lv-bolts" viewBox="0 0 400 400" preserveAspectRatio="none" aria-hidden="true">
+          <path d="M20 40 L60 90 L44 96 L96 150"/><path d="M380 210 L340 250 L356 258 L310 320"/><path d="M60 360 L110 330 L104 318 L160 300"/>
+        </svg>
+        <span class="lv-preview" id="lvPreviewTag" hidden>PREVIEW</span>
+        <div class="lv-head"><b>!</b><span id="smKicker">SYSTEM MESSAGE</span></div>
+        <div class="lv-core lv-flames" aria-hidden="true"></div>
+        <h2 class="lv-title" id="smTitle">LEVEL UP</h2>
+        <div class="lv-levels" id="smLevels"><span id="lvFrom">LEVEL 09</span><b aria-label="to">→</b><span id="lvTo">LEVEL 10</span></div>
+        <div class="sm-name" id="smName"></div>
+        <dl class="sm-ranks" id="smRanks" hidden><div><dt>PREVIOUS RANK</dt><dd id="smRankFrom"></dd></div><div><dt>NEW RANK</dt><dd id="smRankTo"></dd></div></dl>
+        <div class="lv-unlock" id="smSub"></div>
+        <div class="sm-reward" id="smReward"></div>
+        <div class="sm-award" id="smAwardLine" hidden></div>
+        <div class="sm-detail" id="smDetail"></div>
+        <dl class="lv-stats" id="smStats">
+          <div><dt>XP GAINED</dt><dd id="lvGain">+0</dd></div>
+          <div><dt>TOTAL XP</dt><dd id="lvTotal">0</dd></div>
+          <div><dt>NEXT LEVEL</dt><dd id="lvNext">0 / 0</dd></div>
+        </dl>
+        <div class="xpbar lv-bar" role="progressbar" aria-label="Progress to next level" aria-valuemin="0" aria-valuemax="100" id="lvBarWrap"><i id="lvBar"></i></div>
+        <dl class="qi-meta sm-meta" id="smMeta" hidden></dl>
+        <div class="sm-acts" id="smActs" hidden></div>
+        <div class="lv-foot"><span class="lv-count"><span id="lvCount"></span> <span id="smQueue"></span></span>
+          <span class="sm-btns"><button class="lv-skip" type="button" id="lvSkip">SKIP</button><button class="lv-skip" type="button" id="smClose">CLOSE</button></span></div>
+      </div></div>
+    </div>
+    <div class="lv-flash" aria-hidden="true"></div>
+  </div>
+</dialog>
+<button class="sm-resume" type="button" id="smResume" hidden>RESUME</button>

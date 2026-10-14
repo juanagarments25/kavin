@@ -1,0 +1,524 @@
+<title>Kage Monark System Demo</title>
+<meta name="theme-color" content="#030305">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@500;700;900&family=Rajdhani:wght@500;600;700&display=swap" rel="stylesheet">
+<style>
+/* =========================================================
+   JARVIS — MONARK SYSTEM DEMO (isolated demo page)
+   Same type + panel language as the JARVIS app: Orbitron heads,
+   Rajdhani body, notched system frames. Rank colors live in
+   registered custom properties so switching ranks animates.
+   Layout: preview stage (left / top) · demo settings (right / below)
+   ========================================================= */
+@property --ra{syntax:"<color>";inherits:true;initial-value:#ff2440}
+@property --rb{syntax:"<color>";inherits:true;initial-value:#8a0012}
+@property --rc{syntax:"<color>";inherits:true;initial-value:#ffd2d6}
+@property --rd{syntax:"<color>";inherits:true;initial-value:#1a0003}
+:root{
+  --bg:#030305; --panel:#0a0b12; --ink:#e9eef8; --muted:#8b93a7; --dim:#5b6278; --line:rgba(255,255,255,.1);
+  --accent:#3fe0ff; --ok:#3dffb0; --bad:#ff5a6a;
+  --head:"Orbitron","Segoe UI",system-ui,sans-serif; --body:"Rajdhani","Segoe UI",system-ui,sans-serif;
+  color-scheme:dark;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{min-height:100%}
+body{background:var(--bg);color:var(--ink);font-family:var(--body);font-size:16px;line-height:1.45;-webkit-font-smoothing:antialiased;overflow-x:hidden}
+button,input,select{font:inherit;color:inherit}
+button{cursor:pointer}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.wrap{max-width:1240px;margin:0 auto;padding-block:18px 48px;padding-inline:16px}
+.top{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-bottom:14px}
+.brand{font-family:var(--head);font-weight:700;font-size:13px;letter-spacing:.28em;color:#cfd6e6}
+.brand b{color:var(--accent)}
+.demo-tag{font-family:var(--head);font-size:10px;letter-spacing:.22em;padding:5px 10px;border:1px solid rgba(255,204,77,.5);color:#ffd98a;background:rgba(60,45,0,.3)}
+.layout{display:grid;grid-template-columns:minmax(0,1.5fr) minmax(0,1fr);gap:18px;align-items:start}
+
+/* ---------------- rank themes ---------------- */
+.stage{--ra:#ff2440;--rb:#8a0012;--rc:#ffd2d6;--rd:#1a0003;transition:--ra .6s ease,--rb .6s ease,--rc .6s ease,--rd .6s ease}
+.stage[data-rank=E]{--ra:#5c86ff;--rb:#2242b8;--rc:#dbe5ff;--rd:#040a22}
+.stage[data-rank=D]{--ra:#3ff0ff;--rb:#0b8fae;--rc:#dcfdff;--rd:#00161c}
+.stage[data-rank=C]{--ra:#ff2440;--rb:#8a0012;--rc:#ffd2d6;--rd:#1a0003}
+.stage[data-rank=B]{--ra:#ff8a1f;--rb:#b04800;--rc:#ffe6cc;--rd:#1a0b00}
+.stage[data-rank=A]{--ra:#18b4ff;--rb:#0047ff;--rc:#e8f7ff;--rd:#00102c}
+.stage[data-rank=S]{--ra:#b86bff;--rb:#5a1fd0;--rc:#f1e3ff;--rd:#12002a}
+
+/* ---------------- preview stage ---------------- */
+.stage{position:relative;overflow:hidden;min-height:620px;border:1px solid var(--line);
+  background:radial-gradient(120% 70% at 50% 55%, var(--rd), #000 72%), #000;
+  display:grid;place-items:center;padding:70px 16px 60px;isolation:isolate}
+.stage-label{position:absolute;left:14px;top:12px;font-family:var(--head);font-size:9px;letter-spacing:.3em;color:var(--dim);z-index:6}
+.stage-status{position:absolute;right:14px;top:12px;font-family:var(--head);font-size:9px;letter-spacing:.2em;color:var(--dim);z-index:6;font-variant-numeric:tabular-nums}
+#fx{position:absolute;inset:0;width:100%;height:100%;pointer-events:none;z-index:4}
+.dark{position:absolute;inset:0;background:#000;z-index:5;pointer-events:none;opacity:0}
+.stage.play .dark{animation:fromDark 1.1s ease-out both}
+@keyframes fromDark{0%{opacity:1}100%{opacity:0}}
+.pulse{position:absolute;left:50%;top:50%;width:900px;height:900px;margin:-450px 0 0 -450px;border-radius:50%;pointer-events:none;z-index:0;opacity:0;
+  background:radial-gradient(closest-side, color-mix(in srgb, var(--ra) 60%, transparent), color-mix(in srgb, var(--rb) 30%, transparent) 45%, transparent 70%)}
+.stage.play .pulse{animation:pulse 1.6s .35s ease-out both}
+@keyframes pulse{0%{opacity:0;transform:scale(.3)}25%{opacity:1}100%{opacity:.18;transform:scale(1.15)}}
+
+/* smoke: soft dark plumes drifting up behind the panel */
+.smoke{position:absolute;inset:0;pointer-events:none;z-index:1}
+.smoke i{position:absolute;bottom:-60px;width:260px;height:260px;border-radius:50%;filter:blur(26px);opacity:0;
+  background:radial-gradient(closest-side, color-mix(in srgb, var(--rb) 35%, rgba(30,30,34,.9)), transparent 70%);
+  animation:smoke 9s linear infinite}
+.smoke i:nth-child(1){left:8%;animation-delay:0s}.smoke i:nth-child(2){left:30%;animation-delay:-2.2s;width:320px}
+.smoke i:nth-child(3){left:52%;animation-delay:-4.4s}.smoke i:nth-child(4){left:70%;animation-delay:-6.1s;width:300px}
+.smoke i:nth-child(5){left:42%;animation-delay:-7.5s;width:220px}
+@keyframes smoke{0%{transform:translateY(0) scale(.6);opacity:0}15%{opacity:.55}100%{transform:translateY(-640px) scale(1.5);opacity:0}}
+.stage.no-smoke .smoke,.stage.is-closed .smoke,.stage.is-closed .pulse{display:none}
+
+/* ---------------- notification panel ---------------- */
+.mk{position:relative;width:min(470px,100%);z-index:3}
+.mk[hidden]{display:none}
+.mk-glow{position:relative;z-index:2;filter:drop-shadow(0 0 8px var(--ra)) drop-shadow(0 0 26px color-mix(in srgb, var(--rb) 85%, transparent))}
+.mk-frame{--k:22px;padding:2px;
+  background:linear-gradient(90deg, var(--rb), var(--ra), var(--rc), var(--ra), var(--rb), var(--ra), var(--rc), var(--ra), var(--rb)) 0 0/300% 100%;
+  animation:energy 3.2s linear infinite;
+  clip-path:polygon(var(--k) 0,calc(50% - 34px) 0,calc(50% - 20px) 10px,calc(50% + 20px) 10px,calc(50% + 34px) 0,calc(100% - var(--k)) 0,100% var(--k),100% calc(100% - var(--k)),calc(100% - var(--k)) 100%,var(--k) 100%,0 calc(100% - var(--k)),0 var(--k))}
+@keyframes energy{to{background-position:300% 0}}
+.mk-in{position:relative;overflow:hidden;clip-path:inherit;padding:22px 22px 18px;text-align:center;
+  background:radial-gradient(120% 60% at 50% 0%, color-mix(in srgb, var(--rb) 30%, transparent), transparent 62%),
+             radial-gradient(100% 60% at 50% 110%, color-mix(in srgb, var(--rd) 95%, transparent), transparent 70%),
+             linear-gradient(180deg,#07070b,#020203)}
+.mk-in::before{content:"";position:absolute;inset:11px;border:1px solid color-mix(in srgb, var(--ra) 32%, transparent);pointer-events:none}
+.mk-in::after{content:"";position:absolute;top:-20%;bottom:-20%;width:38%;left:-50%;pointer-events:none;transform:skewX(-18deg);opacity:0;
+  background:linear-gradient(90deg, transparent, color-mix(in srgb, var(--ra) 55%, transparent), color-mix(in srgb, var(--rc) 70%, transparent), transparent)}
+.stage.play .mk-in::after{animation:flashSweep .9s .55s ease-in-out both}
+@keyframes flashSweep{0%{left:-50%;opacity:0}20%{opacity:1}100%{left:120%;opacity:0}}
+.mk-in > *{position:relative;z-index:1}
+/* rank image layers: one per artwork, cross-fading to 50% opacity for the selected rank */
+.mk-in > .rank-bg{position:absolute;inset:0;z-index:0;pointer-events:none}
+.rank-bg i{position:absolute;inset:0;background-size:cover;background-position:center 22%;opacity:0;transition:opacity .7s ease}
+.stage[data-rank=E] .rank-bg i[data-img=e],.stage[data-rank=D] .rank-bg i[data-img=d],.stage[data-rank=C] .rank-bg i[data-img=c],
+.stage[data-rank=B] .rank-bg i[data-img=b],.stage[data-rank=A] .rank-bg i[data-img=a],.stage[data-rank=S] .rank-bg i[data-img=s]{opacity:.5}
+.stage.no-rankimg .rank-bg{display:none}
+/*__RANK_IMG_CSS__*/
+
+.mk-sys{font-family:var(--head);font-size:10px;font-weight:700;letter-spacing:.34em;color:color-mix(in srgb, var(--rc) 70%, #8b93a7)}
+.mk-kick{display:inline-flex;align-items:center;gap:10px;margin-top:10px;padding:6px 14px;border:1px solid color-mix(in srgb, var(--ra) 55%, transparent);
+  font-family:var(--head);font-size:11px;font-weight:700;letter-spacing:.28em;color:var(--rc);text-shadow:0 0 8px var(--ra);
+  background:color-mix(in srgb, var(--rd) 70%, transparent);box-shadow:inset 0 0 14px color-mix(in srgb, var(--ra) 22%, transparent)}
+.mk-kick b{width:18px;height:18px;border:1.5px solid var(--rc);border-radius:50%;display:grid;place-items:center;font-size:10px;letter-spacing:0}
+.badge{position:relative;width:118px;height:132px;margin:18px auto 6px;display:grid;place-items:center}
+.badge .hex{position:absolute;inset:0;clip-path:polygon(50% 0,100% 25%,100% 75%,50% 100%,0 75%,0 25%);
+  background:linear-gradient(160deg, var(--rc), var(--ra) 30%, var(--rb) 70%, var(--ra))}
+.badge .hex::after{content:"";position:absolute;inset:3px;clip-path:inherit;background:radial-gradient(circle at 50% 40%, color-mix(in srgb, var(--rb) 55%, #000), #050306 75%)}
+.badge .letter{position:relative;font-family:var(--head);font-weight:900;font-size:62px;line-height:1;color:var(--ra);
+  text-shadow:0 0 10px var(--ra),0 0 28px var(--ra),0 0 54px var(--rb)}
+.badge .tag{position:absolute;bottom:-6px;left:50%;transform:translateX(-50%);font-family:var(--head);font-size:10px;font-weight:700;letter-spacing:.3em;
+  padding:3px 10px;background:#050306;border:1px solid color-mix(in srgb, var(--ra) 60%, transparent);color:var(--rc);white-space:nowrap}
+.stage.play .badge,.badge.pop{animation:scaleIn .9s .95s cubic-bezier(.2,.9,.25,1.15) both}
+.badge.pop{animation-delay:0s}
+@keyframes scaleIn{0%{opacity:0;transform:scale(2.4);filter:blur(10px) brightness(2)}60%{opacity:1;filter:blur(0) brightness(1.4)}100%{opacity:1;transform:scale(1);filter:none}}
+.mk-title{margin-top:14px;font-family:var(--head);font-weight:900;font-size:clamp(22px,6vw,32px);letter-spacing:.1em;line-height:1.1;text-transform:uppercase;word-break:break-word;
+  background:linear-gradient(180deg,#fff 0%,var(--rc) 40%,var(--ra) 100%);-webkit-background-clip:text;background-clip:text;color:transparent;
+  filter:drop-shadow(0 0 10px color-mix(in srgb, var(--ra) 80%, transparent))}
+.mk-achieved{margin-top:6px;font-family:var(--head);font-weight:700;font-size:clamp(14px,4vw,17px);letter-spacing:.18em;color:var(--ra);text-shadow:0 0 10px var(--ra)}
+.mk-level{display:grid;grid-template-columns:auto 1fr;gap:4px 14px;align-items:center;margin:16px 4px 0;text-align:left}
+.mk-level .lv{font-family:var(--head);font-weight:900;font-size:24px;letter-spacing:.06em;color:#fff;font-variant-numeric:tabular-nums;text-shadow:0 0 10px var(--ra)}
+.mk-level .lv small{display:block;font-size:9px;letter-spacing:.24em;color:color-mix(in srgb, var(--rc) 65%, #8b93a7);text-shadow:none}
+.mk-level .info{font-size:14px;color:#c9cfdc;font-variant-numeric:tabular-nums}
+.mk-level .info b{color:var(--rc)}
+.bar{grid-column:1/-1;height:8px;border:1px solid color-mix(in srgb, var(--ra) 40%, transparent);background:rgba(255,255,255,.04);overflow:hidden}
+.bar i{display:block;height:100%;width:0;background:linear-gradient(90deg, var(--rb), var(--ra), var(--rc));box-shadow:0 0 12px var(--ra);transition:width .5s ease}
+.mk-power{margin-top:14px;font-family:var(--head);font-size:12px;font-weight:700;letter-spacing:.3em;color:var(--rc)}
+.mk-award{margin-top:12px;padding:8px 10px;font-family:var(--head);font-weight:900;font-size:clamp(12px,3.4vw,14px);letter-spacing:.18em;color:#fff;
+  border-top:1px solid color-mix(in srgb, var(--ra) 60%, transparent);border-bottom:1px solid color-mix(in srgb, var(--ra) 60%, transparent);
+  background:linear-gradient(90deg, transparent, color-mix(in srgb, var(--rb) 45%, transparent), transparent);text-shadow:0 0 10px var(--ra)}
+.stage.play .mk-award{animation:awardIn .6s 1.6s ease-out both, glowPulse 2.2s 2.2s ease-in-out infinite}
+.stage:not(.play) .mk-award{animation:glowPulse 2.2s ease-in-out infinite}
+@keyframes awardIn{from{opacity:0;transform:translateY(8px);filter:brightness(2)}to{opacity:1;transform:none;filter:none}}
+@keyframes glowPulse{0%,100%{text-shadow:0 0 8px var(--ra);box-shadow:0 0 0 transparent}50%{text-shadow:0 0 16px var(--rc),0 0 30px var(--ra);box-shadow:0 0 24px color-mix(in srgb, var(--ra) 45%, transparent)}}
+.stage.no-award .mk-award{display:none}
+.mk-foot{display:flex;justify-content:space-between;align-items:center;gap:10px;margin-top:16px;flex-wrap:wrap}
+.mk-count{font-family:var(--head);font-size:10px;letter-spacing:.2em;color:color-mix(in srgb, var(--rc) 60%, #8b93a7);font-variant-numeric:tabular-nums}
+.mk-btns{display:flex;gap:8px}
+.mk-btn{border:1px solid color-mix(in srgb, var(--rc) 50%, transparent);background:color-mix(in srgb, var(--rd) 80%, transparent);color:#fff;padding:9px 14px;
+  font-family:var(--head);font-size:10px;font-weight:700;letter-spacing:.2em;clip-path:polygon(8px 0,100% 0,100% calc(100% - 8px),calc(100% - 8px) 100%,0 100%,0 8px);transition:background .2s}
+.mk-btn:hover{background:color-mix(in srgb, var(--rb) 60%, transparent)}
+/* staged entrance */
+.stage.play .mk-glow{animation:panelIn .9s .25s ease-out both}
+@keyframes panelIn{0%{opacity:0;transform:scale(.94);filter:brightness(.1)}60%{opacity:1}100%{opacity:1;transform:none}}
+.stage.play .mk-title,.stage.play .mk-achieved,.stage.play .mk-level,.stage.play .mk-power{animation:rise .6s ease-out both}
+.stage.play .mk-title{animation-delay:1.25s}.stage.play .mk-achieved{animation-delay:1.35s}.stage.play .mk-level{animation-delay:1.45s}.stage.play .mk-power{animation-delay:1.5s}
+@keyframes rise{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
+.mk-title.swap{animation:rise .35s ease-out both}
+
+/* ---------------- flames (C-Rank) ---------------- */
+.fire{position:absolute;pointer-events:none;display:none}
+.stage[data-rank=C]:not(.no-flames) .fire{display:block}
+.fire i{position:absolute;bottom:0;width:var(--w,46px);height:var(--h,90px);margin-left:calc(var(--w,46px) / -2);transform-origin:50% 100%;
+  animation:flick var(--t,1.1s) ease-in-out infinite alternate;animation-delay:var(--dl,0s);mix-blend-mode:screen}
+.fire i::before,.fire i::after,.fire i b{content:"";position:absolute;inset:0;
+  clip-path:polygon(50% 0,62% 18%,74% 36%,90% 58%,96% 78%,86% 100%,14% 100%,4% 78%,10% 58%,26% 36%,38% 18%)}
+.fire i::before{background:radial-gradient(ellipse 70% 75% at 50% 95%, #ff5a2a 0 18%, #e3101f 40%, #6a0008 70%, transparent 86%);filter:blur(3px)}
+.fire i b{inset:22% 22% 0;background:radial-gradient(ellipse 60% 70% at 50% 95%, #fff2c8 0 12%, #ffb03a 30%, #ff3a1a 58%, transparent 80%);filter:blur(2px)}
+.fire i::after{inset:-10% -14% 0;background:radial-gradient(ellipse 60% 80% at 50% 100%, rgba(140,0,15,.55), transparent 70%);filter:blur(8px)}
+@keyframes flick{0%{transform:scale(.82,.62) skewX(calc(var(--sk,4deg) * -1))}45%{transform:scale(1,1.06) skewX(var(--sk,4deg))}100%{transform:scale(1.08,.86) skewX(calc(var(--sk,4deg) * .4))}}
+.fire-wrap{position:absolute;inset:0;pointer-events:none;filter:url(#warp)}
+.f-back{left:-4%;right:-4%;top:-78px;height:120px;z-index:1}
+.f-front{left:-3%;right:-3%;bottom:-34px;height:70px;z-index:3;opacity:.92}
+.f-left{left:-30px;top:6%;bottom:2%;width:56px;z-index:1}
+.f-right{right:-30px;top:6%;bottom:2%;width:56px;z-index:1}
+.stage.play .fire{animation:ignite 1s .7s cubic-bezier(.2,.9,.25,1.1) both}
+@keyframes ignite{0%{opacity:0;transform:scaleY(.1);transform-origin:50% 100%}60%{opacity:1}100%{opacity:1;transform:none}}
+
+/* closed state */
+.closed{position:relative;z-index:3;text-align:center;display:grid;gap:12px;justify-items:center}
+.closed[hidden]{display:none}
+.closed p{font-family:var(--head);font-size:11px;letter-spacing:.3em;color:var(--muted)}
+
+/* ---------------- demo settings ---------------- */
+.panel{border:1px solid var(--line);background:var(--panel);padding:18px}
+.panel h2{font-family:var(--head);font-size:12px;font-weight:700;letter-spacing:.24em;color:#cfd6e6;margin-bottom:4px}
+.panel .note{font-size:14px;color:var(--muted);margin-bottom:16px}
+.group{display:grid;gap:8px;padding:14px 0;border-top:1px solid var(--line)}
+.group > label,.glabel{font-family:var(--head);font-size:10px;font-weight:700;letter-spacing:.22em;color:var(--muted)}
+.ranks{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:6px}
+.ranks button{border:1px solid var(--line);background:#07080d;padding:9px 0 7px;font-family:var(--head);font-weight:900;font-size:17px;display:grid;gap:2px;justify-items:center;
+  transition:border-color .2s, box-shadow .2s}
+.ranks button small{font-size:8px;font-weight:700;letter-spacing:.14em;color:var(--dim)}
+.ranks button[aria-checked=true]{border-color:var(--c);box-shadow:0 0 14px color-mix(in srgb, var(--c) 55%, transparent), inset 0 0 12px color-mix(in srgb, var(--c) 25%, transparent);color:var(--c)}
+.ranks button[aria-checked=true] small{color:var(--c)}
+.lvl{display:grid;grid-template-columns:auto minmax(0,1fr) auto;gap:6px}
+.in{width:100%;min-width:0;background:#05060a;border:1px solid var(--line);padding:10px 12px;font-size:16px;font-weight:600;text-align:center;font-variant-numeric:tabular-nums}
+.in:focus{outline:none;border-color:var(--accent);box-shadow:0 0 0 3px rgba(63,224,255,.15)}
+.in.bad{border-color:var(--bad)}
+.text{text-align:left}
+.step{border:1px solid var(--line);background:#07080d;width:44px;font-weight:700;font-size:18px}
+.err{color:#ff9aa8;font-size:13px;min-height:0}
+.msgs{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:6px}
+.msgs button{border:1px solid var(--line);background:#07080d;padding:9px 8px;font-family:var(--head);font-size:10px;font-weight:700;letter-spacing:.12em;text-align:center}
+.msgs button[aria-checked=true]{border-color:var(--accent);color:#fff;box-shadow:inset 0 0 12px rgba(63,224,255,.2)}
+.custom{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:6px}
+.toggles{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}
+.tg{display:flex;align-items:center;justify-content:space-between;gap:10px;border:1px solid var(--line);background:#07080d;padding:10px 12px;font-weight:600}
+.switch{position:relative;width:44px;height:24px;flex:none}
+.switch input{position:absolute;inset:0;opacity:0;cursor:pointer;margin:0}
+.switch i{position:absolute;inset:0;border-radius:99px;background:rgba(255,255,255,.08);border:1px solid var(--line);pointer-events:none;transition:.2s}
+.switch i::after{content:"";position:absolute;top:3px;left:3px;width:16px;height:16px;border-radius:50%;background:var(--muted);transition:.2s}
+.switch input:checked + i{background:rgba(63,224,255,.22);border-color:var(--accent)}
+.switch input:checked + i::after{left:23px;background:var(--accent)}
+.switch input:focus-visible + i{outline:2px solid var(--accent);outline-offset:2px}
+.actions{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}
+.btn{border:1px solid var(--line);background:#0c0e16;padding:12px;font-family:var(--head);font-size:11px;font-weight:700;letter-spacing:.18em}
+.btn:hover{border-color:var(--accent)}
+.btn.primary{border-color:var(--accent);background:linear-gradient(135deg, rgba(47,139,255,.35), rgba(63,224,255,.2));color:#fff}
+.btn.ghost{background:transparent}
+.foot-note{margin-top:14px;font-size:13px;color:var(--dim)}
+.live{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)}
+
+@media (max-width: 980px){ .layout{grid-template-columns:minmax(0,1fr)} }
+@media (max-width: 560px){
+  .stage{min-height:600px;padding:80px 16px 56px}
+  .mk-in{padding:20px 14px 16px}
+  .badge{width:100px;height:112px}.badge .letter{font-size:52px}
+  .f-back{top:-64px;height:100px}.f-left,.f-right{width:40px}.f-left{left:-20px}.f-right{right:-20px}
+  .ranks button{font-size:15px}
+}
+@media (prefers-reduced-motion: reduce){
+  *,*::before,*::after{animation-duration:.001ms !important;animation-iteration-count:1 !important;animation-delay:0s !important;transition-duration:.001ms !important}
+  .smoke{display:none}
+}
+</style>
+
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <filter id="warp" x="-20%" y="-20%" width="140%" height="140%">
+    <feTurbulence type="fractalNoise" baseFrequency="0.018 0.06" numOctaves="2" seed="3" result="n">
+      <animate attributeName="baseFrequency" dur="6s" values="0.018 0.06;0.022 0.09;0.018 0.06" repeatCount="indefinite"/>
+    </feTurbulence>
+    <feDisplacementMap in="SourceGraphic" in2="n" scale="14" xChannelSelector="R" yChannelSelector="G"/>
+  </filter>
+</svg>
+
+<div class="wrap">
+  <header class="top">
+    <div class="brand"><b>KAGE MONARK SYSTEM</b> · DEMO</div>
+    <span class="demo-tag">DEMO ONLY · NOTHING IS SAVED</span>
+  </header>
+
+  <div class="layout">
+    <!-- PREVIEW -->
+    <section class="stage play" id="stage" data-rank="C" aria-label="Notification preview">
+      <span class="stage-label">LIVE PREVIEW</span>
+      <span class="stage-status" id="status"></span>
+      <div class="pulse" aria-hidden="true"></div>
+      <div class="smoke" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i></div>
+      <canvas id="fx" aria-hidden="true"></canvas>
+
+      <div class="mk" id="mk" role="dialog" aria-labelledby="mkTitle" aria-describedby="mkAchieved">
+        <div class="fire f-back" aria-hidden="true"><div class="fire-wrap" id="fBack"></div></div>
+        <div class="fire f-left" aria-hidden="true"><div class="fire-wrap" id="fLeft"></div></div>
+        <div class="fire f-right" aria-hidden="true"><div class="fire-wrap" id="fRight"></div></div>
+        <div class="mk-glow">
+          <div class="mk-frame"><div class="mk-in">
+            <div class="rank-bg" aria-hidden="true"><i data-img="e"></i><i data-img="d"></i><i data-img="c"></i><i data-img="b"></i><i data-img="a"></i><i data-img="s"></i></div>
+            <div class="mk-sys">KAGE MONARK SYSTEM</div>
+            <div class="mk-kick"><b>!</b>SYSTEM NOTIFICATION</div>
+            <div class="badge" id="badge"><div class="hex"></div><div class="letter" id="badgeLetter">C</div><div class="tag" id="badgeTag">C-RANK</div></div>
+            <h2 class="mk-title" id="mkTitle">RANK AWAKENING</h2>
+            <div class="mk-achieved" id="mkAchieved">C-RANK ACHIEVED</div>
+            <div class="mk-level">
+              <div class="lv" id="mkLv"><small>LEVEL</small>42</div>
+              <div class="info" id="mkLvInfo"></div>
+              <div class="bar" role="progressbar" aria-label="Progress to next milestone" aria-valuemin="0" aria-valuemax="100" id="mkBarWrap"><i id="mkBar"></i></div>
+            </div>
+            <div class="mk-power">YOUR POWER HAS INCREASED</div>
+            <div class="mk-award" id="mkAward">KAGE MONARK SYSTEM: AWARD GRANTED</div>
+            <div class="mk-foot">
+              <span class="mk-count" id="mkCount">NOTIFICATION 1 / 4</span>
+              <span class="mk-btns"><button class="mk-btn" type="button" id="btnSkip">SKIP</button><button class="mk-btn" type="button" id="btnClose">CLOSE</button></span>
+            </div>
+          </div></div>
+        </div>
+        <div class="fire f-front" aria-hidden="true"><div class="fire-wrap" id="fFront"></div></div>
+      </div>
+
+      <div class="closed" id="closed" hidden>
+        <p>NOTIFICATION CLOSED</p>
+        <button class="btn primary" type="button" id="btnReopen">PREVIEW AGAIN</button>
+      </div>
+      <div class="live" aria-live="polite" id="live"></div>
+    </section>
+
+    <!-- DEMO SETTINGS -->
+    <aside class="panel" aria-labelledby="setTitle">
+      <h2 id="setTitle">DEMO SETTINGS</h2>
+      <p class="note">Changes show in the preview instantly. This page is separate from your Kage Monark app and keeps nothing after you leave.</p>
+
+      <div class="group">
+        <span class="glabel" id="rankLbl">RANK</span>
+        <div class="ranks" role="radiogroup" aria-labelledby="rankLbl" id="ranks"></div>
+      </div>
+
+      <div class="group">
+        <label for="lvl">LEVEL (1–9999)</label>
+        <div class="lvl">
+          <button class="step" type="button" id="lvDown" aria-label="Decrease level">−</button>
+          <input class="in" id="lvl" type="number" min="1" max="9999" step="1" inputmode="numeric">
+          <button class="step" type="button" id="lvUp" aria-label="Increase level">+</button>
+        </div>
+        <span class="err" id="lvErr"></span>
+      </div>
+
+      <div class="group">
+        <span class="glabel" id="msgLbl">NOTIFICATION MESSAGE</span>
+        <div class="msgs" role="radiogroup" aria-labelledby="msgLbl" id="msgs"></div>
+        <label for="custom" style="margin-top:6px">CUSTOM MESSAGE</label>
+        <div class="custom">
+          <input class="in text" id="custom" maxlength="36" placeholder="e.g. SHADOW EXTRACTION" autocomplete="off">
+          <button class="btn" type="button" id="useCustom">SHOW</button>
+        </div>
+      </div>
+
+      <div class="group">
+        <span class="glabel">EFFECTS</span>
+        <div class="toggles">
+          <label class="tg">Flames <span class="switch"><input type="checkbox" id="tFlames"><i></i></span></label>
+          <label class="tg">Award message <span class="switch"><input type="checkbox" id="tAward"><i></i></span></label>
+          <label class="tg">Smoke <span class="switch"><input type="checkbox" id="tSmoke"><i></i></span></label>
+          <label class="tg">Particles <span class="switch"><input type="checkbox" id="tParticles"><i></i></span></label>
+          <label class="tg">Rank image <span class="switch"><input type="checkbox" id="tRankImg"><i></i></span></label>
+        </div>
+        <span class="foot-note" style="margin:0">Flames appear on C-Rank, as specified.</span>
+      </div>
+
+      <div class="group">
+        <div class="actions">
+          <button class="btn primary" type="button" id="btnPreview">PREVIEW AGAIN</button>
+          <button class="btn ghost" type="button" id="btnReset">RESET DEMO</button>
+        </div>
+      </div>
+    </aside>
+  </div>
+</div>
+
+<script>
+"use strict";
+/* Demo state lives only in this variable: no storage, no network, no app data. */
+const RANKS = [
+  { id:"E", name:"Blue",          c:"#5c86ff" },
+  { id:"D", name:"Cyan",          c:"#3ff0ff" },
+  { id:"C", name:"Blood Red",     c:"#ff2440" },
+  { id:"B", name:"Orange",        c:"#ff8a1f" },
+  { id:"A", name:"Electric",      c:"#18b4ff" },
+  { id:"S", name:"Purple",        c:"#b86bff" }
+];
+const PRESETS = ["RANK AWAKENING", "LEVEL UP", "NEW POWER UNLOCKED", "AWARD GRANTED"];
+const DEFAULTS = { rank:"C", level:42, msg:0, custom:"", flames:true, award:true, smoke:true, particles:true, rankImg:true };
+let S = JSON.parse(JSON.stringify(DEFAULTS));
+let open = true;
+const $ = s => document.querySelector(s);
+const stage = $("#stage"), reduce = matchMedia("(prefers-reduced-motion: reduce)");
+
+/* message list used by SKIP: the four presets, plus the custom one when set */
+const messages = () => S.custom.trim() ? [...PRESETS, S.custom.trim().toUpperCase()] : PRESETS;
+const msgText = () => messages()[S.msg] ?? PRESETS[0];
+
+/* ---------- build controls ---------- */
+for(const r of RANKS){
+  const b = document.createElement("button");
+  b.type = "button"; b.setAttribute("role","radio"); b.dataset.rank = r.id; b.style.setProperty("--c", r.c);
+  b.setAttribute("aria-label", `${r.id}-Rank, ${r.name}`);
+  b.innerHTML = `${r.id}<small>${r.name.toUpperCase()}</small>`;
+  b.addEventListener("click", () => setRank(r.id));
+  $("#ranks").append(b);
+}
+function buildMsgButtons(){
+  const box = $("#msgs"); box.textContent = "";
+  messages().forEach((m, i) => {
+    const b = document.createElement("button");
+    b.type = "button"; b.setAttribute("role","radio"); b.textContent = i >= PRESETS.length ? `CUSTOM: ${m}` : m;
+    if(i >= PRESETS.length) b.style.gridColumn = "1 / -1";
+    b.addEventListener("click", () => { S.msg = i; render(); swapTitle(); });
+    box.append(b);
+  });
+}
+
+/* ---------- flames (built once, reused) ---------- */
+function tongues(el, n, opts){
+  el.textContent = "";
+  for(let i=0;i<n;i++){
+    const t = document.createElement("i"); t.append(document.createElement("b"));
+    const w = opts.w[0] + Math.random()*(opts.w[1]-opts.w[0]), h = opts.h[0] + Math.random()*(opts.h[1]-opts.h[0]);
+    t.style.setProperty("--w", w.toFixed(0)+"px"); t.style.setProperty("--h", h.toFixed(0)+"px");
+    t.style.setProperty("--t", (0.55 + Math.random()*0.6).toFixed(2)+"s"); t.style.setProperty("--dl", (-Math.random()*1.4).toFixed(2)+"s");
+    t.style.setProperty("--sk", (2 + Math.random()*6).toFixed(1)+"deg");
+    if(opts.vertical){ t.style.left = "50%"; t.style.bottom = (i/(n-1)*88).toFixed(1)+"%"; }
+    else t.style.left = ((i+.5)/n*100).toFixed(2)+"%";
+    el.append(t);
+  }
+}
+tongues($("#fBack"), 13, {w:[44,70], h:[80,124]});
+tongues($("#fFront"), 15, {w:[34,52], h:[44,70]});
+tongues($("#fLeft"), 7, {w:[26,40], h:[44,74], vertical:true});
+tongues($("#fRight"), 7, {w:[26,40], h:[44,74], vertical:true});
+
+/* ---------- render: every control writes S, then this paints the preview ---------- */
+const pad4 = n => String(n).padStart(2,"0");
+function render(){
+  stage.dataset.rank = S.rank;
+  stage.classList.toggle("no-flames", !S.flames);
+  stage.classList.toggle("no-award", !S.award);
+  stage.classList.toggle("no-smoke", !S.smoke);
+  stage.classList.toggle("no-rankimg", !S.rankImg);
+  stage.classList.toggle("is-closed", !open);
+  for(const b of document.querySelectorAll("#ranks button")) b.setAttribute("aria-checked", String(b.dataset.rank === S.rank));
+  buildMsgButtons();
+  document.querySelectorAll("#msgs button").forEach((b,i)=> b.setAttribute("aria-checked", String(i === S.msg)));
+  $("#badgeLetter").textContent = S.rank; $("#badgeTag").textContent = `${S.rank}-RANK`;
+  const title = msgText();
+  $("#mkTitle").textContent = title;
+  // level line: a LEVEL UP message shows the step; every message shows the current level and milestone progress
+  const L = S.level, next = Math.ceil((L+1)/10)*10, base = next - 10, pct = Math.round((L - base) / 10 * 100);
+  $("#mkAchieved").textContent = title === "LEVEL UP" ? `LEVEL ${pad4(Math.max(1,L-1))} → LEVEL ${pad4(L)}` : `${S.rank}-RANK ACHIEVED`;
+  $("#mkLv").innerHTML = ""; const sm = document.createElement("small"); sm.textContent = "LEVEL"; $("#mkLv").append(sm, String(L));
+  $("#mkLvInfo").innerHTML = ""; const b = document.createElement("b"); b.textContent = `LV ${next}`;
+  $("#mkLvInfo").append(`${L - base} / 10 toward milestone `, b);
+  $("#mkBar").style.width = pct + "%"; $("#mkBarWrap").setAttribute("aria-valuenow", pct);
+  const list = messages();
+  $("#mkCount").textContent = `NOTIFICATION ${Math.min(S.msg+1, list.length)} / ${list.length}`;
+  $("#status").textContent = `${S.rank}-RANK · LV ${L} · ${open ? "OPEN" : "CLOSED"}`;
+  $("#lvl").value = L;
+  $("#tFlames").checked = S.flames; $("#tAward").checked = S.award; $("#tSmoke").checked = S.smoke; $("#tParticles").checked = S.particles; $("#tRankImg").checked = S.rankImg;
+  $("#custom").value = S.custom;
+  $("#mk").hidden = !open; $("#closed").hidden = open;
+  Particles.sync();
+}
+function play(){ // full cinematic sequence: darkness → pulse → flash → flames → badge → award
+  open = true; render();
+  stage.classList.remove("play"); void stage.offsetWidth; stage.classList.add("play");
+  $("#live").textContent = `${$("#mkTitle").textContent}. ${$("#mkAchieved").textContent}.`;
+}
+function swapTitle(){ const t = $("#mkTitle"); t.classList.remove("swap"); void t.offsetWidth; t.classList.add("swap"); }
+function popBadge(){ const b = $("#badge"); b.classList.remove("pop"); void b.offsetWidth; b.classList.add("pop"); }
+
+/* ---------- controls ---------- */
+function setRank(r){ if(S.rank === r) return; S.rank = r; render(); popBadge(); }
+function setLevel(v, fromTyping){
+  const n = Math.round(Number(v));
+  if(!Number.isFinite(n) || n < 1 || n > 9999){
+    $("#lvl").classList.add("bad"); $("#lvErr").textContent = "Enter a whole level from 1 to 9999.";
+    if(!fromTyping){ S.level = Math.min(9999, Math.max(1, Number.isFinite(n) ? n : DEFAULTS.level)); render(); }
+    return;
+  }
+  $("#lvl").classList.remove("bad"); $("#lvErr").textContent = "";
+  S.level = n; render();
+}
+$("#lvl").addEventListener("input", e => { if(e.target.value !== "") setLevel(e.target.value, true); });
+$("#lvl").addEventListener("change", e => setLevel(e.target.value, false));
+$("#lvDown").addEventListener("click", () => setLevel(S.level - 1));
+$("#lvUp").addEventListener("click", () => setLevel(S.level + 1));
+$("#custom").addEventListener("input", e => {
+  const had = !!S.custom.trim(); S.custom = e.target.value.replace(/\s+/g," ").slice(0,36);
+  if(S.custom.trim()) S.msg = PRESETS.length; else if(had) S.msg = 0;
+  render(); $("#custom").focus();
+});
+$("#useCustom").addEventListener("click", () => {
+  if(!S.custom.trim()){ $("#custom").classList.add("bad"); $("#custom").focus(); setTimeout(()=>$("#custom").classList.remove("bad"), 1200); return; }
+  S.msg = PRESETS.length; play();
+});
+$("#tFlames").addEventListener("change", e => { S.flames = e.target.checked; render(); });
+$("#tAward").addEventListener("change", e => { S.award = e.target.checked; render(); });
+$("#tSmoke").addEventListener("change", e => { S.smoke = e.target.checked; render(); });
+$("#tParticles").addEventListener("change", e => { S.particles = e.target.checked; render(); });
+$("#tRankImg").addEventListener("change", e => { S.rankImg = e.target.checked; render(); });
+// CLOSE hides the notification and keeps it on the same message; SKIP jumps to the next message and replays
+$("#btnClose").addEventListener("click", () => { open = false; stage.classList.remove("play"); render(); $("#live").textContent = "Notification closed."; $("#btnReopen").focus(); });
+$("#btnSkip").addEventListener("click", () => { S.msg = (S.msg + 1) % messages().length; play(); });
+$("#btnReopen").addEventListener("click", play);
+$("#btnPreview").addEventListener("click", play);
+$("#btnReset").addEventListener("click", () => { S = JSON.parse(JSON.stringify(DEFAULTS)); $("#lvl").classList.remove("bad"); $("#lvErr").textContent = ""; play(); });
+
+/* ---------- particles: one canvas, a different behaviour per rank ---------- */
+const Particles = (() => {
+  const c = $("#fx"), ctx = c.getContext("2d");
+  let W = 0, H = 0, ps = [], raf = null, last = 0, kind = "";
+  function size(){ const r = c.getBoundingClientRect(), d = Math.min(devicePixelRatio||1, 2); W = r.width; H = r.height; c.width = W*d; c.height = H*d; ctx.setTransform(d,0,0,d,0,0); }
+  const col = () => getComputedStyle(stage);
+  function spawn(k){
+    const p = { x: Math.random()*W, y: Math.random()*H, a: Math.random()*.6+.3, r: Math.random()*1.8+.6, t: Math.random()*6.28 };
+    if(k==="C"){ p.y = H*0.55 + Math.random()*H*0.5; p.vy = -(Math.random()*1.3+.5); p.vx = (Math.random()-.5)*.6; p.r = Math.random()*2.2+.6; p.hot = Math.random()<.35; }
+    if(k==="E"){ p.vy = -(Math.random()*.25+.05); p.vx = (Math.random()-.5)*.2; p.r = Math.random()*2.6+1; }
+    if(k==="D"){ p.y = H*0.6 + Math.random()*H*0.4; p.vy = -(Math.random()*2.6+1.6); p.vx = (Math.random()-.5)*.4; p.len = Math.random()*10+6; }
+    if(k==="B"){ p.x = W/2 + (Math.random()-.5)*W*.5; p.y = H*0.62; p.vx = (Math.random()-.5)*3.2; p.vy = -(Math.random()*3.5+2); p.g = .07; }
+    if(k==="A"){ p.life = 0; p.max = 6 + Math.random()*10; p.seg = 4 + Math.floor(Math.random()*4); }
+    if(k==="S"){ p.ang = Math.random()*6.28; p.rad = 120 + Math.random()*Math.min(W,H)*.35; p.sp = (Math.random()*.004+.002)*(Math.random()<.5?-1:1); p.r = Math.random()*2.8+1.2; }
+    return p;
+  }
+  function reset(){ const k = S.rank, n = {C:70,E:40,D:55,B:60,A:14,S:46}[k]; kind = k; ps = Array.from({length:n}, ()=>spawn(k)); }
+  function frame(t){
+    raf = requestAnimationFrame(frame);
+    if(t - last < 33) return; last = t;
+    if(kind !== S.rank) reset();
+    const cs = col(), A = cs.getPropertyValue("--ra").trim(), C = cs.getPropertyValue("--rc").trim();
+    ctx.clearRect(0,0,W,H); ctx.globalCompositeOperation = "lighter";
+    for(let i=0;i<ps.length;i++){
+      let p = ps[i]; p.t += .08;
+      if(kind==="C"){ p.x += p.vx + Math.sin(p.t)*.35; p.y += p.vy; p.a -= .004; if(p.y < -10 || p.a <= 0) p = ps[i] = spawn("C");
+        dot(p.x,p.y,p.r, p.hot ? "#ffb347" : A, p.a*(.7+.3*Math.sin(p.t*3))); }
+      else if(kind==="E"){ p.x += p.vx; p.y += p.vy; if(p.y < -10) { p.y = H+10; p.x = Math.random()*W; } dot(p.x,p.y,p.r,A,p.a*(.6+.4*Math.sin(p.t))); }
+      else if(kind==="D"){ p.x += p.vx; p.y += p.vy; if(p.y < -20) p = ps[i] = spawn("D");
+        ctx.strokeStyle = C; ctx.globalAlpha = p.a; ctx.lineWidth = 1.4; ctx.shadowColor = A; ctx.shadowBlur = 8; ctx.beginPath(); ctx.moveTo(p.x,p.y); ctx.lineTo(p.x,p.y+p.len); ctx.stroke(); }
+      else if(kind==="B"){ p.x += p.vx; p.y += p.vy; p.vy += p.g; p.a -= .007; if(p.y > H+10 || p.a <= 0) p = ps[i] = spawn("B"); dot(p.x,p.y,p.r, Math.random()<.3?"#ffd38a":A, p.a); }
+      else if(kind==="A"){ p.life++; if(p.life > p.max){ ps[i] = spawn("A"); continue; }
+        if(p.life < 4){ ctx.strokeStyle = C; ctx.globalAlpha = .9; ctx.lineWidth = 1.6; ctx.shadowColor = A; ctx.shadowBlur = 12; ctx.beginPath();
+          let x = p.x, y = p.y; ctx.moveTo(x,y); for(let s=0;s<p.seg;s++){ x += (Math.random()-.5)*36; y += 8+Math.random()*16; ctx.lineTo(x,y); } ctx.stroke(); } }
+      else if(kind==="S"){ p.ang += p.sp; const x = W/2 + Math.cos(p.ang)*p.rad, y = H/2 + Math.sin(p.ang)*p.rad*.55; dot(x,y,p.r,A,p.a*(.5+.5*Math.sin(p.t))); }
+    }
+    ctx.globalAlpha = 1; ctx.shadowBlur = 0; ctx.globalCompositeOperation = "source-over";
+  }
+  function dot(x,y,r,color,a){ ctx.globalAlpha = Math.max(0,a); ctx.fillStyle = color; ctx.shadowColor = color; ctx.shadowBlur = 10; ctx.beginPath(); ctx.arc(x,y,r,0,6.283); ctx.fill(); }
+  function start(){ if(raf) return; size(); reset(); raf = requestAnimationFrame(frame); }
+  function stop(){ if(raf){ cancelAnimationFrame(raf); raf = null; } ctx.clearRect(0,0,c.width,c.height); }
+  function sync(){ (S.particles && open && !reduce.matches && !document.hidden) ? start() : stop(); }
+  addEventListener("resize", () => { if(raf){ size(); reset(); } });
+  document.addEventListener("visibilitychange", sync);
+  reduce.addEventListener?.("change", sync);
+  return { sync };
+})();
+
+render(); play();
+</script>

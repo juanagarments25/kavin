@@ -1,0 +1,1219 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#04060d">
+<title>J.A.R.V.I.S — Shadow Reminder</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@500;700;900&family=Rajdhani:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+/* =========================================================
+   J.A.R.V.I.S — SHADOW MONARCH REMINDER SYSTEM
+   Single-file app. Sections: tokens · layout · core · panels
+   · reminders · quests · diagnostics · dialogs · toasts
+   ========================================================= */
+:root{
+  --bg:#04060d; --bg2:#070b18; --navy:#0a1330;
+  --panel:rgba(10,18,42,.72); --panel-solid:#0b1430;
+  --line:rgba(80,170,255,.28); --line-strong:rgba(90,200,255,.7);
+  --cyan:#3fe0ff; --blue:#2f8bff; --violet:#9b5cff; --violet-deep:#5a2bd6;
+  --text:#dfeaff; --muted:#8a9cc4; --dim:#5d6d93;
+  --ok:#3dffb0; --warn:#ffcc4d; --danger:#ff5577;
+  --radius:12px;
+  --font-head:"Orbitron", "Segoe UI", system-ui, sans-serif;
+  --font-body:"Rajdhani", "Segoe UI", system-ui, sans-serif;
+  color-scheme: dark;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{min-height:100%}
+body{
+  background:
+    radial-gradient(1200px 700px at 15% -10%, rgba(91,43,214,.22), transparent 60%),
+    radial-gradient(1000px 600px at 110% 10%, rgba(47,139,255,.16), transparent 60%),
+    linear-gradient(180deg, var(--bg) 0%, var(--bg2) 55%, #050813 100%);
+  background-color:var(--bg);
+  color:var(--text); font-family:var(--font-body); font-size:16px; line-height:1.45;
+  overflow-x:hidden; -webkit-font-smoothing:antialiased;
+}
+#fx{position:fixed;inset:0;width:100%;height:100%;pointer-events:none;z-index:0}
+.scan{position:fixed;inset:0;pointer-events:none;z-index:1;
+  background:repeating-linear-gradient(180deg, rgba(120,200,255,.025) 0 1px, transparent 1px 3px);}
+.scan::after{content:"";position:absolute;left:0;right:0;height:120px;top:-120px;
+  background:linear-gradient(180deg,transparent,rgba(63,224,255,.06),transparent);
+  animation:sweep 9s linear infinite}
+@keyframes sweep{to{transform:translateY(calc(100vh + 240px))}}
+
+.wrap{position:relative;z-index:2;max-width:1240px;margin:0 auto;padding:18px 16px 60px}
+button,input,select,textarea{font:inherit;color:inherit}
+button{cursor:pointer}
+:focus-visible{outline:2px solid var(--cyan);outline-offset:2px}
+.sr-only{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)}
+
+/* ---------- top bar ---------- */
+.topbar{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:14px}
+.brand{font-family:var(--font-head);font-weight:700;letter-spacing:.28em;font-size:13px;color:var(--cyan);
+  text-shadow:0 0 12px rgba(63,224,255,.6)}
+.brand .dot{display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--ok);margin-right:8px;
+  box-shadow:0 0 10px var(--ok);animation:blink 2.4s ease-in-out infinite;vertical-align:1px}
+.brand.offline .dot{background:var(--warn);box-shadow:0 0 10px var(--warn)}
+@keyframes blink{50%{opacity:.35}}
+.top-actions{display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end}
+
+/* ---------- buttons ---------- */
+.btn{border:1px solid var(--line);background:rgba(20,40,90,.35);border-radius:9px;padding:9px 14px;
+  font-family:var(--font-head);font-size:11px;letter-spacing:.14em;text-transform:uppercase;font-weight:700;
+  transition:.2s border-color,.2s box-shadow,.2s background,.15s transform;white-space:nowrap}
+.btn:hover{border-color:var(--line-strong);box-shadow:0 0 16px rgba(63,224,255,.25)}
+.btn:active{transform:translateY(1px)}
+.btn[disabled]{opacity:.45;cursor:not-allowed;box-shadow:none}
+.btn.primary{background:linear-gradient(135deg, rgba(47,139,255,.9), rgba(155,92,255,.9));border-color:transparent;color:#fff;
+  box-shadow:0 0 18px rgba(91,120,255,.45), inset 0 0 0 1px rgba(255,255,255,.15)}
+.btn.primary:hover{box-shadow:0 0 28px rgba(110,140,255,.7), inset 0 0 0 1px rgba(255,255,255,.3)}
+.btn.ghost{background:transparent}
+.btn.danger{border-color:rgba(255,85,119,.45);color:#ffb3c2}
+.btn.danger:hover{box-shadow:0 0 14px rgba(255,85,119,.35)}
+.btn.sm{padding:6px 10px;font-size:10px}
+.btn.on{border-color:rgba(61,255,176,.5);color:var(--ok)}
+
+/* ---------- hero ---------- */
+.hero{display:grid;grid-template-columns:auto 1fr auto;gap:28px;align-items:center;
+  padding:22px 26px;margin-bottom:18px}
+.core{width:190px;height:190px;position:relative;flex:none}
+.core svg{width:100%;height:100%;overflow:visible}
+.core .r1{transform-origin:100px 100px;animation:spin 40s linear infinite}
+.core .r2{transform-origin:100px 100px;animation:spin 22s linear infinite reverse}
+.core .r3{transform-origin:100px 100px;animation:spin 13s linear infinite}
+.core .pulse{transform-origin:100px 100px;animation:corePulse 3.2s ease-in-out infinite}
+.core .flame{transform-origin:100px 112px;animation:flame 2.2s ease-in-out infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+@keyframes corePulse{0%,100%{opacity:.55;transform:scale(.94)}50%{opacity:1;transform:scale(1.04)}}
+@keyframes flame{0%,100%{transform:scaleY(1)}50%{transform:scaleY(1.08) translateY(-1px)}}
+.core.alerting .pulse{animation-duration:.8s}
+
+.greet .kicker{font-family:var(--font-head);font-size:11px;letter-spacing:.32em;color:var(--violet);margin-bottom:6px}
+.greet h1{font-family:var(--font-head);font-weight:900;font-size:clamp(22px,3.4vw,38px);letter-spacing:.06em;line-height:1.1;
+  background:linear-gradient(90deg,#fff 0%, var(--cyan) 45%, var(--violet) 100%);-webkit-background-clip:text;background-clip:text;color:transparent;
+  filter:drop-shadow(0 0 14px rgba(63,224,255,.35));word-break:break-word}
+.greet .sys{margin-top:8px;font-family:var(--font-head);font-size:12px;letter-spacing:.22em;color:var(--muted)}
+.greet .sys b{color:var(--ok);font-weight:700}
+.rank{display:flex;align-items:center;gap:12px;margin-top:14px;max-width:520px}
+.rank .badge{font-family:var(--font-head);font-weight:900;font-size:13px;letter-spacing:.1em;padding:5px 9px;border-radius:7px;
+  border:1px solid var(--violet);color:#e6d8ff;background:rgba(155,92,255,.15);box-shadow:0 0 12px rgba(155,92,255,.4);white-space:nowrap}
+.xpbar{flex:1;height:10px;border-radius:99px;background:rgba(255,255,255,.06);border:1px solid var(--line);overflow:hidden;position:relative}
+.xpbar i{display:block;height:100%;width:0;border-radius:inherit;
+  background:linear-gradient(90deg,var(--blue),var(--cyan),var(--violet));box-shadow:0 0 14px var(--cyan);
+  transition:width .8s cubic-bezier(.2,.8,.2,1)}
+.xpbar i::after{content:"";position:absolute;inset:0;background:linear-gradient(90deg,transparent,rgba(255,255,255,.35),transparent);
+  transform:translateX(-100%);animation:shine 3s ease-in-out infinite}
+@keyframes shine{to{transform:translateX(100%)}}
+.xptext{font-family:var(--font-head);font-size:10px;letter-spacing:.12em;color:var(--muted);white-space:nowrap}
+
+.clock{text-align:right}
+.clock .time{font-family:var(--font-head);font-weight:700;font-size:clamp(26px,3.6vw,40px);letter-spacing:.06em;color:#fff;
+  text-shadow:0 0 18px rgba(63,224,255,.55);font-variant-numeric:tabular-nums}
+.clock .date{font-size:15px;color:var(--muted);letter-spacing:.08em;margin-top:2px}
+.clock .next{margin-top:10px;font-size:13px;color:var(--cyan);max-width:240px;margin-left:auto}
+
+/* ---------- system window panels ---------- */
+.win{position:relative;background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);
+  backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);
+  box-shadow:0 0 0 1px rgba(0,0,0,.4), 0 10px 40px rgba(0,0,0,.45), inset 0 0 40px rgba(47,139,255,.05)}
+.win::before,.win::after{content:"";position:absolute;width:18px;height:18px;border:2px solid var(--cyan);pointer-events:none;
+  filter:drop-shadow(0 0 4px var(--cyan))}
+.win::before{top:-1px;left:-1px;border-right:0;border-bottom:0;border-top-left-radius:var(--radius)}
+.win::after{bottom:-1px;right:-1px;border-left:0;border-top:0;border-bottom-right-radius:var(--radius)}
+.win-head{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:14px 18px;border-bottom:1px solid var(--line)}
+.win-title{font-family:var(--font-head);font-size:13px;font-weight:700;letter-spacing:.22em;color:var(--cyan);display:flex;align-items:center;gap:10px}
+.win-title::before{content:"";width:6px;height:6px;transform:rotate(45deg);background:var(--violet);box-shadow:0 0 8px var(--violet)}
+.win-body{padding:16px 18px}
+
+.grid{display:grid;grid-template-columns:minmax(0,1.35fr) minmax(0,1fr);gap:18px;align-items:start}
+.col{display:grid;gap:18px;min-width:0}
+
+/* ---------- forms ---------- */
+.form{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.form .full{grid-column:1/-1}
+label.f{display:grid;gap:5px;font-size:12px;letter-spacing:.14em;text-transform:uppercase;color:var(--muted);font-weight:600}
+.in{width:100%;background:rgba(3,8,22,.7);border:1px solid var(--line);border-radius:8px;padding:10px 12px;font-size:16px;
+  color:var(--text);transition:.2s border-color,.2s box-shadow;letter-spacing:normal;text-transform:none;font-weight:500}
+.in:focus{outline:none;border-color:var(--cyan);box-shadow:0 0 0 3px rgba(63,224,255,.15)}
+.in.bad{border-color:var(--danger);box-shadow:0 0 0 3px rgba(255,85,119,.15)}
+textarea.in{min-height:64px;resize:vertical}
+input[type=date].in,input[type=time].in{color-scheme:dark}
+.err{color:#ff9db0;font-size:13px;min-height:0;letter-spacing:normal;text-transform:none;font-weight:500}
+.form-actions{display:flex;gap:10px;justify-content:flex-end;flex-wrap:wrap}
+
+/* ---------- filters ---------- */
+.filters{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:14px}
+.chip{border:1px solid var(--line);background:transparent;border-radius:99px;padding:6px 12px;font-size:13px;font-weight:600;
+  letter-spacing:.08em;color:var(--muted);display:flex;align-items:center;gap:6px}
+.chip .n{font-family:var(--font-head);font-size:10px;padding:1px 6px;border-radius:99px;background:rgba(255,255,255,.07)}
+.chip[aria-pressed=true]{color:#fff;border-color:var(--cyan);background:rgba(63,224,255,.1);box-shadow:0 0 12px rgba(63,224,255,.25)}
+.chip.due-chip .n{background:rgba(63,224,255,.25);color:#fff}
+
+/* ---------- reminder list ---------- */
+.list{display:grid;gap:10px}
+.rem{display:grid;grid-template-columns:auto 1fr auto;gap:12px;align-items:start;padding:12px 14px;border-radius:10px;
+  border:1px solid rgba(80,170,255,.18);background:rgba(8,16,38,.65);transition:.25s border-color,.25s background;animation:rise .35s ease both}
+@keyframes rise{from{opacity:0;transform:translateY(6px)}}
+.rem .mark{width:10px;height:10px;margin-top:7px;transform:rotate(45deg);border:2px solid var(--blue)}
+.rem h3{font-size:18px;font-weight:700;letter-spacing:.02em;word-break:break-word}
+.rem .meta{font-size:13px;color:var(--muted);display:flex;gap:10px;flex-wrap:wrap;margin-top:1px}
+.rem .meta .rel{color:var(--cyan)}
+.rem .notes{font-size:14px;color:#b8c6e6;margin-top:6px;white-space:pre-wrap;word-break:break-word}
+.rem .acts{display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end}
+.rem .status{font-family:var(--font-head);font-size:9px;letter-spacing:.18em;padding:3px 7px;border-radius:5px;border:1px solid var(--line);color:var(--muted)}
+.rem.due{border-color:var(--cyan);background:linear-gradient(90deg, rgba(63,224,255,.12), rgba(8,16,38,.7) 60%);animation:rise .35s ease both, dueGlow 1.8s ease-in-out infinite}
+.rem.due .mark{border-color:var(--cyan);background:var(--cyan);box-shadow:0 0 10px var(--cyan)}
+.rem.due .status{color:#fff;border-color:var(--cyan);background:rgba(63,224,255,.2)}
+@keyframes dueGlow{0%,100%{box-shadow:0 0 0 rgba(63,224,255,0), inset 0 0 0 rgba(63,224,255,0)}50%{box-shadow:0 0 22px rgba(63,224,255,.45), inset 0 0 18px rgba(63,224,255,.12)}}
+.rem.done{opacity:.6}
+.rem.done h3{text-decoration:line-through;text-decoration-color:var(--violet)}
+.rem.done .mark{border-color:var(--ok);background:var(--ok)}
+.rem.done .status{color:var(--ok);border-color:rgba(61,255,176,.4)}
+.rem.editing{border-color:var(--violet);box-shadow:0 0 16px rgba(155,92,255,.35)}
+.confirm-row{display:flex;gap:6px;align-items:center;font-size:13px;color:#ffb3c2}
+.empty{text-align:center;padding:28px 10px;color:var(--dim);font-size:15px;letter-spacing:.06em}
+.empty b{display:block;font-family:var(--font-head);font-size:11px;letter-spacing:.3em;color:var(--muted);margin-bottom:6px}
+
+/* ---------- quests ---------- */
+.qtabs{display:flex;gap:6px;margin-bottom:12px;flex-wrap:wrap}
+.qadd{display:grid;grid-template-columns:1fr auto auto;gap:8px;margin-bottom:12px}
+.qadd select.in{width:auto}
+.quest{display:flex;align-items:center;gap:12px;padding:10px 12px;border-radius:10px;border:1px solid rgba(155,92,255,.22);
+  background:rgba(20,10,45,.45);position:relative;animation:rise .35s ease both}
+.quest + .quest{margin-top:8px}
+.qcheck{width:24px;height:24px;flex:none;border-radius:6px;border:2px solid var(--violet);background:transparent;display:grid;place-items:center;
+  transition:.2s background,.2s box-shadow}
+.qcheck:hover{box-shadow:0 0 10px var(--violet)}
+.qcheck svg{width:14px;height:14px;opacity:0}
+.quest.done .qcheck{background:var(--violet);box-shadow:0 0 12px var(--violet)}
+.quest.done .qcheck svg{opacity:1}
+.quest .qt{flex:1;min-width:0}
+.quest .qt div{font-weight:600;font-size:16px;word-break:break-word}
+.quest.done .qt div{color:var(--muted);text-decoration:line-through}
+.quest .qt small{font-size:12px;color:var(--dim);letter-spacing:.06em}
+.qtype{font-family:var(--font-head);font-size:9px;letter-spacing:.16em;padding:3px 7px;border-radius:5px;white-space:nowrap}
+.qtype.daily{color:var(--cyan);border:1px solid rgba(63,224,255,.4)}
+.qtype.main{color:#ffd98a;border:1px solid rgba(255,204,77,.45)}
+.qtype.side{color:#d6c2ff;border:1px solid rgba(155,92,255,.5)}
+.quest .del{background:none;border:0;color:var(--dim);padding:4px;border-radius:6px;font-size:18px;line-height:1}
+.quest .del:hover{color:var(--danger)}
+.quest.flash{animation:qflash .9s ease}
+@keyframes qflash{0%{box-shadow:0 0 0 rgba(155,92,255,0)}30%{box-shadow:0 0 30px rgba(155,92,255,.8);border-color:var(--violet)}100%{box-shadow:0 0 0 rgba(155,92,255,0)}}
+.xpfloat{position:absolute;right:46px;top:6px;font-family:var(--font-head);font-weight:900;font-size:14px;color:var(--cyan);
+  text-shadow:0 0 10px var(--cyan);pointer-events:none;animation:floatUp 1.3s ease-out forwards}
+@keyframes floatUp{from{opacity:1;transform:translateY(0)}to{opacity:0;transform:translateY(-34px)}}
+.xprules{font-size:12px;color:var(--dim);margin-top:12px;letter-spacing:.04em}
+
+/* ---------- diagnostics ---------- */
+.diag{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.dg{padding:10px 12px;border-radius:9px;border:1px solid rgba(80,170,255,.16);background:rgba(5,12,30,.6);min-width:0}
+.dg small{display:block;font-family:var(--font-head);font-size:9px;letter-spacing:.2em;color:var(--dim);margin-bottom:3px}
+.dg span{font-weight:600;font-size:15px;display:flex;align-items:center;gap:7px;word-break:break-word}
+.dg span::before{content:"";width:7px;height:7px;border-radius:50%;flex:none;background:var(--dim)}
+.dg[data-s=ok] span::before{background:var(--ok);box-shadow:0 0 8px var(--ok)}
+.dg[data-s=warn] span::before{background:var(--warn);box-shadow:0 0 8px var(--warn)}
+.dg[data-s=bad] span::before{background:var(--danger);box-shadow:0 0 8px var(--danger)}
+.note{font-size:13px;color:var(--muted);margin-top:12px;line-height:1.5}
+.note b{color:var(--text)}
+
+/* ---------- dialogs ---------- */
+dialog{border:0;padding:0;background:transparent;color:var(--text);max-width:min(520px, calc(100vw - 32px));width:100%;margin:auto}
+dialog::backdrop{background:rgba(2,4,12,.72);backdrop-filter:blur(4px)}
+dialog .win{background:linear-gradient(180deg, rgba(14,24,56,.97), rgba(8,12,30,.97))}
+dialog[open] .win{animation:sysOpen .35s cubic-bezier(.2,.9,.2,1.1)}
+@keyframes sysOpen{from{opacity:0;transform:scale(.92) translateY(10px)}}
+.set-grid{display:grid;gap:14px}
+.row{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap}
+.row .lbl{font-weight:600}
+.row .lbl small{display:block;color:var(--dim);font-weight:500;font-size:13px}
+.switch{position:relative;width:48px;height:26px;flex:none}
+.switch input{position:absolute;opacity:0;inset:0;cursor:pointer;margin:0}
+.switch i{position:absolute;inset:0;border-radius:99px;background:rgba(255,255,255,.08);border:1px solid var(--line);transition:.2s;pointer-events:none}
+.switch i::after{content:"";position:absolute;top:3px;left:3px;width:18px;height:18px;border-radius:50%;background:var(--muted);transition:.2s}
+.switch input:checked + i{background:rgba(63,224,255,.25);border-color:var(--cyan)}
+.switch input:checked + i::after{left:25px;background:var(--cyan);box-shadow:0 0 8px var(--cyan)}
+.switch input:focus-visible + i{outline:2px solid var(--cyan);outline-offset:2px}
+hr.sep{border:0;border-top:1px solid var(--line);margin:4px 0}
+
+.alert-box{text-align:center;padding:26px 22px 22px}
+.alert-box .sigil{font-family:var(--font-head);font-size:11px;letter-spacing:.34em;color:var(--violet);margin-bottom:8px}
+.alert-box h2{font-family:var(--font-head);font-size:22px;letter-spacing:.06em;color:#fff;text-shadow:0 0 16px rgba(63,224,255,.6);word-break:break-word}
+.alert-box p{color:#b8c6e6;margin-top:8px;white-space:pre-wrap;word-break:break-word}
+.alert-box .when{color:var(--cyan);font-size:14px;margin-top:6px}
+.alert-box .acts{display:flex;gap:10px;justify-content:center;margin-top:20px;flex-wrap:wrap}
+.alert-box .queue{font-size:12px;color:var(--dim);margin-top:12px}
+
+/* ---------- toasts / level up ---------- */
+.toasts{position:fixed;z-index:50;right:16px;bottom:16px;display:grid;gap:8px;max-width:min(360px, calc(100vw - 32px))}
+.toast{padding:12px 14px;border-radius:10px;border:1px solid var(--line-strong);background:rgba(8,16,40,.95);
+  box-shadow:0 0 22px rgba(63,224,255,.25);font-size:15px;display:flex;gap:10px;align-items:flex-start;animation:tIn .3s ease both}
+.toast::before{content:"";width:8px;height:8px;margin-top:6px;flex:none;transform:rotate(45deg);background:var(--cyan);box-shadow:0 0 8px var(--cyan)}
+.toast.err{border-color:rgba(255,85,119,.6)}.toast.err::before{background:var(--danger);box-shadow:0 0 8px var(--danger)}
+.toast.xp{border-color:rgba(155,92,255,.7)}.toast.xp::before{background:var(--violet);box-shadow:0 0 8px var(--violet)}
+.toast.out{animation:tOut .3s ease forwards}
+@keyframes tIn{from{opacity:0;transform:translateX(20px)}}
+@keyframes tOut{to{opacity:0;transform:translateX(20px)}}
+.levelup{position:fixed;inset:0;z-index:60;display:none;place-items:center;pointer-events:none}
+.levelup.show{display:grid}
+.levelup div{font-family:var(--font-head);font-weight:900;font-size:clamp(34px,8vw,72px);letter-spacing:.14em;color:#fff;text-align:center;
+  text-shadow:0 0 20px var(--cyan),0 0 50px var(--violet);animation:lvl 2.2s ease forwards}
+.levelup small{display:block;font-size:.28em;letter-spacing:.4em;color:var(--cyan);margin-top:6px}
+@keyframes lvl{0%{opacity:0;transform:scale(.6)}15%{opacity:1;transform:scale(1.08)}25%{transform:scale(1)}80%{opacity:1}100%{opacity:0;transform:scale(1.05)}}
+
+.banner{display:none;margin-bottom:14px;padding:10px 14px;border-radius:9px;border:1px solid rgba(255,204,77,.5);background:rgba(60,45,0,.35);color:#ffe1a0;font-size:14px}
+.banner.show{display:block}
+footer{margin-top:26px;text-align:center;font-size:12px;color:var(--dim);letter-spacing:.12em}
+
+/* ---------- responsive ---------- */
+@media (max-width: 980px){
+  .grid{grid-template-columns:1fr}
+  .hero{grid-template-columns:auto 1fr}
+  .clock{grid-column:1/-1;text-align:left;display:flex;align-items:baseline;gap:14px;flex-wrap:wrap}
+  .clock .next{margin:0;max-width:none}
+}
+@media (max-width: 600px){
+  .wrap{padding:12px 12px 40px}
+  .hero{grid-template-columns:1fr;justify-items:center;text-align:center;padding:18px 16px;gap:14px}
+  .core{width:150px;height:150px}
+  .rank{margin-left:auto;margin-right:auto}
+  .clock{justify-content:center;text-align:center}
+  .form{grid-template-columns:1fr 1fr}
+  .rem{grid-template-columns:auto 1fr}
+  .rem .acts{grid-column:1/-1;justify-content:flex-start}
+  .diag{grid-template-columns:1fr 1fr}
+  .qadd{grid-template-columns:1fr 1fr}
+  .qadd .in:first-child{grid-column:1/-1}
+  .brand{font-size:11px;letter-spacing:.2em}
+  .top-actions .btn{padding:8px 10px}
+  .win-body{padding:14px}
+}
+@media (max-width: 380px){ .diag{grid-template-columns:1fr} .form{grid-template-columns:1fr} }
+@media (prefers-reduced-motion: reduce){
+  *,*::before,*::after{animation-duration:.001ms !important;animation-iteration-count:1 !important;transition-duration:.001ms !important}
+  .scan::after{display:none}
+}
+</style>
+</head>
+<body>
+<canvas id="fx" aria-hidden="true"></canvas>
+<div class="scan" aria-hidden="true"></div>
+
+<div class="wrap">
+  <header class="topbar">
+    <div class="brand" id="brand"><span class="dot"></span>J.A.R.V.I.S — SYSTEM ONLINE</div>
+    <div class="top-actions">
+      <button class="btn" id="btnNotify" type="button">Enable Notifications</button>
+      <button class="btn" id="btnVoiceTest" type="button">Test Voice</button>
+      <button class="btn ghost" id="btnSettings" type="button" aria-haspopup="dialog">Profile</button>
+    </div>
+  </header>
+
+  <div class="banner" id="storageBanner" role="status">Browser storage is unavailable (private mode or blocked). Reminders will work but won't be saved after you close this tab.</div>
+
+  <!-- HERO -->
+  <section class="hero win" aria-label="Status">
+    <div class="core" id="core" aria-hidden="true">
+      <svg viewBox="0 0 200 200">
+        <defs>
+          <radialGradient id="gCore" cx="50%" cy="50%" r="50%">
+            <stop offset="0%" stop-color="#ffffff" stop-opacity=".95"/>
+            <stop offset="22%" stop-color="#7ae8ff" stop-opacity=".85"/>
+            <stop offset="55%" stop-color="#6b3cff" stop-opacity=".45"/>
+            <stop offset="100%" stop-color="#1a0b4a" stop-opacity="0"/>
+          </radialGradient>
+          <linearGradient id="gRing" x1="0" y1="0" x2="1" y2="1">
+            <stop offset="0" stop-color="#3fe0ff"/><stop offset="1" stop-color="#9b5cff"/>
+          </linearGradient>
+          <linearGradient id="gFlame" x1="0" y1="1" x2="0" y2="0">
+            <stop offset="0" stop-color="#3fe0ff"/><stop offset=".6" stop-color="#9b5cff"/><stop offset="1" stop-color="#e9ddff"/>
+          </linearGradient>
+          <filter id="glow" x="-50%" y="-50%" width="200%" height="200%"><feGaussianBlur stdDeviation="2.4" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
+        </defs>
+        <circle class="pulse" cx="100" cy="100" r="74" fill="url(#gCore)" opacity=".7"/>
+        <!-- outer tick ring -->
+        <g class="r1" filter="url(#glow)">
+          <circle cx="100" cy="100" r="94" fill="none" stroke="url(#gRing)" stroke-width="1.2" stroke-dasharray="2 6" opacity=".9"/>
+          <circle cx="100" cy="100" r="88" fill="none" stroke="#3fe0ff" stroke-width=".6" opacity=".45"/>
+          <path d="M100 4 l4 8 h-8z M196 100 l-8 4 v-8z M100 196 l-4 -8 h8z M4 100 l8 -4 v8z" fill="#9b5cff"/>
+        </g>
+        <!-- rune ring: arcs + glyph marks -->
+        <g class="r2" filter="url(#glow)">
+          <circle cx="100" cy="100" r="76" fill="none" stroke="#9b5cff" stroke-width="2" stroke-dasharray="40 10 6 10" opacity=".85"/>
+          <g stroke="#7ae8ff" stroke-width="1.4" fill="none" opacity=".9">
+            <path d="M100 30 v8 M96 34 h8"/><path d="M160 64 l-6 5 M157 60 l1 8"/><path d="M164 128 l-8 -2 M162 122 l-3 8"/>
+            <path d="M100 170 v-8 M95 166 l10 0"/><path d="M40 128 l7 -4 M38 122 l5 7"/><path d="M38 70 l8 3 M44 64 l-2 9"/>
+          </g>
+        </g>
+        <!-- inner hex -->
+        <g class="r3">
+          <polygon points="100,46 147,73 147,127 100,154 53,127 53,73" fill="none" stroke="#3fe0ff" stroke-width="1" opacity=".55"/>
+          <polygon points="100,154 53,73 147,73" fill="none" stroke="#9b5cff" stroke-width=".8" opacity=".5"/>
+          <polygon points="100,46 147,127 53,127" fill="none" stroke="#9b5cff" stroke-width=".8" opacity=".5"/>
+        </g>
+        <!-- monarch crown flame (original motif) -->
+        <g class="flame" filter="url(#glow)">
+          <path d="M72 124 L76 92 L86 106 L92 80 L100 100 L108 80 L114 106 L124 92 L128 124 Z" fill="url(#gFlame)" opacity=".92"/>
+          <rect x="72" y="124" width="56" height="6" rx="2" fill="#3fe0ff" opacity=".9"/>
+          <circle cx="100" cy="114" r="4" fill="#fff"/>
+        </g>
+      </svg>
+    </div>
+
+    <div class="greet">
+      <div class="kicker">SHADOW MONARCH REMINDER SYSTEM</div>
+      <h1 id="welcome">WELCOME BACK, HUNTER</h1>
+      <div class="sys">J.A.R.V.I.S — SYSTEM <b id="sysState">ONLINE</b></div>
+      <div class="rank" title="Hunter progression">
+        <span class="badge" id="rankBadge">E-RANK · LV 1</span>
+        <div class="xpbar" role="progressbar" aria-label="XP to next level" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" id="xpbar"><i id="xpfill"></i></div>
+        <span class="xptext" id="xptext">0 / 100 XP</span>
+      </div>
+    </div>
+
+    <div class="clock" aria-live="off">
+      <div class="time" id="clockTime">--:--:--</div>
+      <div class="date" id="clockDate">—</div>
+      <div class="next" id="nextUp"></div>
+    </div>
+  </section>
+
+  <div class="grid">
+    <!-- LEFT: reminders -->
+    <div class="col">
+      <section class="win" aria-labelledby="formTitle">
+        <div class="win-head"><h2 class="win-title" id="formTitle">NEW REMINDER</h2></div>
+        <div class="win-body">
+          <form class="form" id="remForm" novalidate>
+            <label class="f full">Title
+              <input class="in" id="fTitle" maxlength="120" autocomplete="off" placeholder="e.g. Submit project report">
+              <span class="err" id="eTitle"></span>
+            </label>
+            <label class="f">Date
+              <input class="in" id="fDate" type="date">
+            </label>
+            <label class="f">Time
+              <input class="in" id="fTime" type="time">
+            </label>
+            <span class="err full" id="eWhen"></span>
+            <label class="f full">Notes <span style="color:var(--dim);letter-spacing:.08em">(optional)</span>
+              <textarea class="in" id="fNotes" maxlength="1000" placeholder="Details, links, anything to remember"></textarea>
+            </label>
+            <div class="form-actions full">
+              <button class="btn ghost" type="button" id="btnCancelEdit" hidden>Cancel Edit</button>
+              <button class="btn primary" type="submit" id="btnSave">Create Reminder</button>
+            </div>
+          </form>
+        </div>
+      </section>
+
+      <section class="win" aria-labelledby="listTitle">
+        <div class="win-head">
+          <h2 class="win-title" id="listTitle">REMINDERS</h2>
+          <button class="btn sm ghost" type="button" id="btnClearDone">Clear Completed</button>
+        </div>
+        <div class="win-body">
+          <div class="filters" role="group" aria-label="Filter reminders" id="filters">
+            <button class="chip" type="button" data-f="all" aria-pressed="true">All <span class="n" data-c="all">0</span></button>
+            <button class="chip" type="button" data-f="pending" aria-pressed="false">Pending <span class="n" data-c="pending">0</span></button>
+            <button class="chip due-chip" type="button" data-f="due" aria-pressed="false">Due <span class="n" data-c="due">0</span></button>
+            <button class="chip" type="button" data-f="done" aria-pressed="false">Completed <span class="n" data-c="done">0</span></button>
+          </div>
+          <div class="list" id="remList" aria-live="polite"></div>
+        </div>
+      </section>
+    </div>
+
+    <!-- RIGHT: quests + diagnostics -->
+    <div class="col">
+      <section class="win" aria-labelledby="questTitle">
+        <div class="win-head"><h2 class="win-title" id="questTitle">QUEST LOG</h2><span class="xptext" id="totalXp">TOTAL 0 XP</span></div>
+        <div class="win-body">
+          <form class="qadd" id="questForm" novalidate>
+            <input class="in" id="qTitle" maxlength="100" placeholder="New quest…" autocomplete="off" aria-label="Quest title">
+            <select class="in" id="qType" aria-label="Quest type">
+              <option value="daily">Daily · 10 XP</option>
+              <option value="main">Main · 50 XP</option>
+              <option value="side">Side · 20 XP</option>
+            </select>
+            <button class="btn primary" type="submit">Add</button>
+          </form>
+          <div class="qtabs" role="group" aria-label="Filter quests" id="qtabs">
+            <button class="chip" type="button" data-q="all" aria-pressed="true">All</button>
+            <button class="chip" type="button" data-q="daily" aria-pressed="false">Daily</button>
+            <button class="chip" type="button" data-q="main" aria-pressed="false">Main</button>
+            <button class="chip" type="button" data-q="side" aria-pressed="false">Side</button>
+          </div>
+          <div id="questList"></div>
+          <p class="xprules">Daily quests reset at midnight and can earn XP once per day. Main and Side quests earn XP once. Reopening a quest never removes XP, and completing it again never adds more.</p>
+        </div>
+      </section>
+
+      <section class="win" aria-labelledby="diagTitle">
+        <div class="win-head"><h2 class="win-title" id="diagTitle">SYSTEM DIAGNOSTICS</h2><button class="btn sm ghost" type="button" id="btnDiagRefresh">Refresh</button></div>
+        <div class="win-body">
+          <div class="diag">
+            <div class="dg" id="dNet"><small>CONNECTION</small><span>—</span></div>
+            <div class="dg" id="dNotif"><small>NOTIFICATIONS</small><span>—</span></div>
+            <div class="dg" id="dVoice"><small>VOICE ENGINE</small><span>—</span></div>
+            <div class="dg" id="dBatt"><small>BATTERY</small><span>—</span></div>
+            <div class="dg" id="dScreen"><small>SCREEN</small><span>—</span></div>
+            <div class="dg" id="dAI"><small>AI CONNECTION</small><span>—</span></div>
+            <div class="dg" id="dStore"><small>STORAGE</small><span>—</span></div>
+            <div class="dg" id="dWatch"><small>REMINDER WATCH</small><span>—</span></div>
+          </div>
+          <p class="note"><b>Alerts work only while this page is open</b> (a background tab is fine). If the browser or tab is fully closed, nothing can fire. Missed reminders will alert the next time you open the page.</p>
+        </div>
+      </section>
+    </div>
+  </div>
+
+  <footer>J.A.R.V.I.S · SHADOW REMINDER v2.1 · DATA STORED ONLY IN THIS BROWSER</footer>
+</div>
+
+<!-- SETTINGS DIALOG -->
+<dialog id="dlgSettings" aria-labelledby="setTitle">
+  <div class="win">
+    <div class="win-head"><h2 class="win-title" id="setTitle">HUNTER PROFILE</h2><button class="btn sm ghost" type="button" data-close>Close</button></div>
+    <div class="win-body">
+      <form class="set-grid" id="setForm" novalidate>
+        <label class="f">Display name
+          <input class="in" id="sName" maxlength="24" autocomplete="nickname" placeholder="Hunter">
+          <span class="err" id="eName"></span>
+        </label>
+        <div class="row">
+          <div class="lbl">Voice alerts<small>Speak reminders aloud when they're due</small></div>
+          <label class="switch"><input type="checkbox" id="sVoiceOn" aria-label="Voice alerts"><i></i></label>
+        </div>
+        <label class="f">Voice
+          <select class="in" id="sVoice"><option value="">System default</option></select>
+        </label>
+        <label class="f">Speech rate <span id="sRateVal" style="color:var(--cyan)">1.0×</span>
+          <input type="range" id="sRate" min="0.6" max="1.6" step="0.1" value="1">
+        </label>
+        <div class="row">
+          <div class="lbl">Alert sound<small>Short chime before the voice</small></div>
+          <label class="switch"><input type="checkbox" id="sChime" aria-label="Alert sound"><i></i></label>
+        </div>
+        <hr class="sep">
+        <div class="row">
+          <div class="lbl">Backup<small>Export or restore reminders, quests and XP</small></div>
+          <div style="display:flex;gap:8px;flex-wrap:wrap">
+            <button class="btn sm" type="button" id="btnExport">Export</button>
+            <button class="btn sm" type="button" id="btnImport">Import</button>
+            <input type="file" id="importFile" accept="application/json,.json" hidden>
+          </div>
+        </div>
+        <div class="form-actions">
+          <button class="btn ghost" type="button" data-close>Cancel</button>
+          <button class="btn primary" type="submit">Save Profile</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</dialog>
+
+<!-- ALERT DIALOG -->
+<dialog id="dlgAlert" aria-labelledby="alTitle">
+  <div class="win">
+    <div class="alert-box">
+      <div class="sigil" id="alSigil">⟡ SYSTEM ALERT ⟡</div>
+      <h2 id="alTitle">—</h2>
+      <div class="when" id="alWhen"></div>
+      <p id="alNotes"></p>
+      <div class="acts">
+        <button class="btn" type="button" id="alSnooze">Snooze 10 min</button>
+        <button class="btn ghost" type="button" id="alDismiss">Dismiss</button>
+        <button class="btn primary" type="button" id="alDone">Mark Complete</button>
+      </div>
+      <div class="queue" id="alQueue"></div>
+    </div>
+  </div>
+</dialog>
+
+<div class="toasts" id="toasts" aria-live="polite"></div>
+<div class="levelup" id="levelup" aria-hidden="true"><div>LEVEL UP<small id="levelupTxt"></small></div></div>
+
+<script>
+"use strict";
+let booted = false; // set true in BOOT once every section below is defined
+/* =========================================================
+   1. STORAGE (safe wrapper + versioned keys + legacy import)
+   ========================================================= */
+const KEYS = {
+  reminders: "jarvis.shadow.reminders.v2",
+  quests:    "jarvis.shadow.quests.v1",
+  player:    "jarvis.shadow.player.v1",
+  profile:   "jarvis.shadow.profile.v1",
+  migrated:  "jarvis.shadow.migrated"
+};
+// Keys an older JARVIS reminder file may have used. They are only READ, never deleted.
+const LEGACY_REMINDER_KEYS = ["reminders","jarvisReminders","jarvis_reminders","JARVIS_REMINDERS","jarvis-reminders","shadowReminders","jarvis.reminders"];
+
+const Store = (() => {
+  let ok = true;
+  try { const k="__jarvis_test__"; localStorage.setItem(k,"1"); localStorage.removeItem(k); } catch { ok = false; }
+  return {
+    ok,
+    get(key, fallback){ if(!ok) return fallback; try{ const v = localStorage.getItem(key); return v==null ? fallback : JSON.parse(v); } catch { return fallback; } },
+    set(key, value){ if(!ok) return false; try{ localStorage.setItem(key, JSON.stringify(value)); return true; } catch(e){ toast("Could not save — storage may be full.", "err"); return false; } }
+  };
+})();
+
+const uid = () => (crypto.randomUUID ? crypto.randomUUID() : Date.now().toString(36)+Math.random().toString(36).slice(2));
+
+function normalizeReminder(r){
+  if(!r || typeof r !== "object") return null;
+  const title = String(r.title ?? r.text ?? r.name ?? r.message ?? "").trim();
+  let due = null;
+  const candidates = [r.due, r.dueAt, r.datetime, r.dateTime, r.timestamp, r.when];
+  for(const c of candidates){ if(c!=null && c!==""){ const t = typeof c==="number" ? c : Date.parse(c); if(!isNaN(t)){ due=t; break; } } }
+  if(due==null && r.date){ const t = Date.parse(r.date + "T" + (r.time || "09:00")); if(!isNaN(t)) due=t; }
+  if(!title || due==null) return null;
+  const done = !!(r.done ?? r.completed ?? r.isDone);
+  return {
+    id: String(r.id ?? uid()), title: title.slice(0,120), notes: String(r.notes ?? r.description ?? r.note ?? "").slice(0,1000),
+    due, done, doneAt: done ? (r.doneAt ?? Date.now()) : null,
+    alerted: !!(r.alerted ?? r.notified ?? done), createdAt: r.createdAt ?? Date.now(), snoozed: false
+  };
+}
+
+function loadReminders(){
+  const current = Store.get(KEYS.reminders, null);
+  if(Array.isArray(current)) return current.map(normalizeReminder).filter(Boolean);
+  // First run of v2: try to bring over reminders from an older version of this file.
+  let imported = [];
+  if(Store.ok && !Store.get(KEYS.migrated,false)){
+    for(const k of LEGACY_REMINDER_KEYS){
+      const legacy = Store.get(k, null);
+      const arr = Array.isArray(legacy) ? legacy : (legacy && Array.isArray(legacy.reminders) ? legacy.reminders : null);
+      if(arr) imported.push(...arr.map(normalizeReminder).filter(Boolean));
+    }
+    Store.set(KEYS.migrated, true);
+    if(imported.length) setTimeout(()=>toast(`Recovered ${imported.length} reminder${imported.length>1?"s":""} from the previous version.`),600);
+  }
+  return imported;
+}
+
+/* =========================================================
+   2. STATE
+   ========================================================= */
+const state = {
+  reminders: loadReminders(),
+  quests: (Store.get(KEYS.quests, []) || []).filter(q => q && q.id && q.title && ["daily","main","side"].includes(q.type)),
+  player: Object.assign({ xp: 0 }, Store.get(KEYS.player, {})),
+  profile: Object.assign({ name: "", voiceOn: true, voiceURI: "", rate: 1, chime: true }, Store.get(KEYS.profile, {})),
+  filter: "all", qfilter: "all", editingId: null, confirmDeleteId: null
+};
+if(typeof state.player.xp !== "number" || state.player.xp < 0 || !isFinite(state.player.xp)) state.player.xp = 0;
+
+const saveReminders = () => Store.set(KEYS.reminders, state.reminders);
+const saveQuests    = () => Store.set(KEYS.quests, state.quests);
+const savePlayer    = () => Store.set(KEYS.player, state.player);
+const saveProfile   = () => Store.set(KEYS.profile, state.profile);
+
+/* =========================================================
+   3. HELPERS
+   ========================================================= */
+const $ = (s, el=document) => el.querySelector(s);
+const pad = n => String(n).padStart(2,"0");
+const dayKey = (d=new Date()) => `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`;
+const fmtTime = t => new Date(t).toLocaleTimeString([], {hour:"2-digit", minute:"2-digit"});
+const fmtDate = t => new Date(t).toLocaleDateString([], {weekday:"short", day:"numeric", month:"short", year:"numeric"});
+const toInputDate = t => { const d=new Date(t); return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`; };
+const toInputTime = t => { const d=new Date(t); return `${pad(d.getHours())}:${pad(d.getMinutes())}`; };
+
+function relTime(t){
+  const diff = t - Date.now(), abs = Math.abs(diff), m = Math.round(abs/60000);
+  let s;
+  if(m < 1) s = "now";
+  else if(m < 60) s = `${m} min`;
+  else if(m < 60*24){ const h=Math.floor(m/60), mm=m%60; s = `${h}h${mm?` ${mm}m`:""}`; }
+  else { const d = Math.round(m/1440); s = `${d} day${d>1?"s":""}`; }
+  if(s==="now") return diff>0 ? "in under a minute" : "just now";
+  return diff>0 ? `in ${s}` : `${s} ago`;
+}
+function el(tag, attrs={}, ...kids){
+  const n = document.createElement(tag);
+  for(const [k,v] of Object.entries(attrs)){
+    if(k==="class") n.className=v; else if(k==="text") n.textContent=v;
+    else if(k.startsWith("on")) n.addEventListener(k.slice(2), v);
+    else if(v!==false && v!=null) n.setAttribute(k, v===true?"":v);
+  }
+  for(const k of kids) if(k!=null) n.append(k);
+  return n;
+}
+function toast(msg, kind=""){
+  const box = $("#toasts");
+  const t = el("div", {class:`toast ${kind}`, role: kind==="err"?"alert":"status"}, el("span",{text:msg}));
+  box.append(t);
+  while(box.children.length > 4) box.firstChild.remove();
+  setTimeout(()=>{ t.classList.add("out"); setTimeout(()=>t.remove(), 320); }, kind==="err"?5200:3600);
+}
+const statusOf = r => r.done ? "done" : (r.due <= Date.now() ? "due" : "pending");
+
+/* =========================================================
+   4. CLOCK + PROFILE HEADER
+   ========================================================= */
+function tickClock(){
+  const now = new Date();
+  $("#clockTime").textContent = now.toLocaleTimeString([], {hour:"2-digit", minute:"2-digit", second:"2-digit"});
+  $("#clockDate").textContent = now.toLocaleDateString([], {weekday:"long", day:"numeric", month:"long", year:"numeric"});
+}
+function renderWelcome(){
+  const name = (state.profile.name || "").trim();
+  $("#welcome").textContent = `WELCOME BACK, ${(name || "HUNTER").toUpperCase()}`;
+  document.title = name ? `J.A.R.V.I.S — ${name}` : "J.A.R.V.I.S — Shadow Reminder";
+}
+function renderNext(){
+  const next = state.reminders.filter(r=>!r.done && r.due > Date.now()).sort((a,b)=>a.due-b.due)[0];
+  const due = state.reminders.filter(r=>statusOf(r)==="due").length;
+  $("#nextUp").textContent = due ? `⟡ ${due} reminder${due>1?"s":""} due now` : next ? `Next: ${next.title} · ${relTime(next.due)}` : "No upcoming reminders";
+  $("#core").classList.toggle("alerting", due>0);
+}
+
+/* =========================================================
+   5. REMINDERS — form, list, filters, actions
+   ========================================================= */
+const form = $("#remForm"), fTitle=$("#fTitle"), fDate=$("#fDate"), fTime=$("#fTime"), fNotes=$("#fNotes");
+
+function resetForm(){
+  state.editingId = null;
+  form.reset();
+  const d = new Date(Date.now() + 10*60000); d.setSeconds(0,0);
+  d.setMinutes(Math.ceil(d.getMinutes()/5)*5);
+  fDate.value = toInputDate(d); fTime.value = toInputTime(d);
+  $("#formTitle").textContent = "NEW REMINDER";
+  $("#btnSave").textContent = "Create Reminder";
+  $("#btnCancelEdit").hidden = true;
+  clearErrors();
+}
+function clearErrors(){ for(const i of [fTitle,fDate,fTime]) i.classList.remove("bad"); $("#eTitle").textContent=""; $("#eWhen").textContent=""; }
+
+form.addEventListener("submit", e => {
+  e.preventDefault(); clearErrors();
+  const title = fTitle.value.trim(), notes = fNotes.value.trim();
+  let ok = true;
+  if(!title){ fTitle.classList.add("bad"); $("#eTitle").textContent = "Give the reminder a title."; ok=false; }
+  if(!fDate.value || !fTime.value){
+    if(!fDate.value) fDate.classList.add("bad"); if(!fTime.value) fTime.classList.add("bad");
+    $("#eWhen").textContent = "Choose both a date and a time."; ok=false;
+  }
+  let due = NaN;
+  if(ok){ const [y,mo,d] = fDate.value.split("-").map(Number); const [h,mi] = fTime.value.split(":").map(Number); due = new Date(y,mo-1,d,h,mi,0,0).getTime(); }
+  if(ok && isNaN(due)){ $("#eWhen").textContent = "That date or time isn't valid."; ok=false; }
+  const editing = state.editingId && state.reminders.find(r=>r.id===state.editingId);
+  if(ok && !editing && due < Date.now() - 30000){ fDate.classList.add("bad"); fTime.classList.add("bad"); $("#eWhen").textContent = "That time has already passed. Pick a future time."; ok=false; }
+  if(!ok){ (fTitle.classList.contains("bad")?fTitle:fDate).focus(); return; }
+
+  if(editing){
+    const timeChanged = editing.due !== due;
+    Object.assign(editing, {title, notes, due});
+    if(timeChanged && !editing.done) editing.alerted = due <= Date.now() ? editing.alerted : false;
+    saveReminders(); toast(`Reminder updated: ${title}`);
+  } else {
+    state.reminders.push({ id: uid(), title, notes, due, done:false, doneAt:null, alerted:false, createdAt:Date.now(), snoozed:false });
+    saveReminders(); toast(`Reminder created for ${fmtTime(due)}, ${fmtDate(due)}.`);
+  }
+  resetForm(); renderAll(); fTitle.focus();
+});
+$("#btnCancelEdit").addEventListener("click", ()=>{ resetForm(); renderReminders(); });
+
+function startEdit(id){
+  const r = state.reminders.find(x=>x.id===id); if(!r) return;
+  state.editingId = id; state.confirmDeleteId = null;
+  fTitle.value = r.title; fNotes.value = r.notes || ""; fDate.value = toInputDate(r.due); fTime.value = toInputTime(r.due);
+  $("#formTitle").textContent = "EDIT REMINDER"; $("#btnSave").textContent = "Save Changes"; $("#btnCancelEdit").hidden = false;
+  clearErrors(); renderReminders();
+  form.scrollIntoView({behavior:"smooth", block:"start"}); setTimeout(()=>fTitle.focus({preventScroll:true}), 300);
+}
+function setDone(id, done){
+  const r = state.reminders.find(x=>x.id===id); if(!r) return;
+  r.done = done; r.doneAt = done ? Date.now() : null;
+  if(done) r.alerted = true;            // never alert for a completed reminder
+  else r.alerted = r.due <= Date.now(); // reopening an overdue one shows it as Due without re-alerting
+  saveReminders();
+  toast(done ? `Completed: ${r.title}` : `Reopened: ${r.title}`);
+  renderAll();
+}
+function removeReminder(id){
+  const i = state.reminders.findIndex(x=>x.id===id); if(i<0) return;
+  const [r] = state.reminders.splice(i,1);
+  if(state.editingId===id) resetForm();
+  state.confirmDeleteId = null; saveReminders(); toast(`Deleted: ${r.title}`); renderAll();
+}
+
+function renderReminders(){
+  const list = $("#remList"); list.textContent = "";
+  const sorted = [...state.reminders].sort((a,b)=>a.due-b.due || a.createdAt-b.createdAt);
+  const counts = {all:sorted.length, pending:0, due:0, done:0};
+  for(const r of sorted) counts[statusOf(r)]++;
+  for(const [k,v] of Object.entries(counts)) $(`[data-c="${k}"]`).textContent = v;
+
+  const shown = sorted.filter(r => state.filter==="all" || statusOf(r)===state.filter);
+  if(!shown.length){
+    const msg = {all:"No reminders yet. Create your first one above.", pending:"Nothing pending.", due:"Nothing due right now.", done:"No completed reminders."}[state.filter];
+    list.append(el("div",{class:"empty"}, el("b",{text:"// NO ENTRIES"}), msg));
+    return;
+  }
+  for(const r of shown){
+    const st = statusOf(r);
+    const label = {pending:"PENDING", due:"DUE", done:"COMPLETED"}[st];
+    let acts;
+    if(state.confirmDeleteId === r.id){
+      acts = el("div",{class:"confirm-row"}, "Delete?",
+        el("button",{class:"btn sm danger", type:"button", onclick:()=>removeReminder(r.id)}, "Yes, delete"),
+        el("button",{class:"btn sm ghost", type:"button", onclick:()=>{state.confirmDeleteId=null; renderReminders();}}, "Keep"));
+    } else {
+      acts = el("div",{class:"acts"},
+        r.done
+          ? el("button",{class:"btn sm", type:"button", onclick:()=>setDone(r.id,false), "aria-label":`Reopen ${r.title}`}, "Reopen")
+          : el("button",{class:"btn sm on", type:"button", onclick:()=>setDone(r.id,true), "aria-label":`Complete ${r.title}`}, "Complete"),
+        el("button",{class:"btn sm", type:"button", onclick:()=>startEdit(r.id), "aria-label":`Edit ${r.title}`}, "Edit"),
+        el("button",{class:"btn sm danger", type:"button", onclick:()=>{state.confirmDeleteId=r.id; renderReminders();}, "aria-label":`Delete ${r.title}`}, "Delete"));
+    }
+    const card = el("article",{class:`rem ${st}${state.editingId===r.id?" editing":""}`, "data-id":r.id},
+      el("div",{class:"mark","aria-hidden":"true"}),
+      el("div",{},
+        el("h3",{text:r.title}),
+        el("div",{class:"meta"},
+          el("span",{class:"status",text:label}),
+          el("span",{text:`${fmtDate(r.due)} · ${fmtTime(r.due)}`}),
+          r.done ? null : el("span",{class:"rel",text:relTime(r.due)})),
+        r.notes ? el("div",{class:"notes",text:r.notes}) : null),
+      acts);
+    list.append(card);
+  }
+}
+
+$("#filters").addEventListener("click", e=>{
+  const b = e.target.closest("[data-f]"); if(!b) return;
+  state.filter = b.dataset.f;
+  for(const c of $("#filters").children) c.setAttribute("aria-pressed", String(c===b));
+  renderReminders();
+});
+$("#btnClearDone").addEventListener("click", ()=>{
+  const n = state.reminders.filter(r=>r.done).length;
+  if(!n){ toast("No completed reminders to clear."); return; }
+  const b = $("#btnClearDone");
+  if(b.dataset.armed){ state.reminders = state.reminders.filter(r=>!r.done); saveReminders(); toast(`Cleared ${n} completed reminder${n>1?"s":""}.`); delete b.dataset.armed; b.textContent="Clear Completed"; renderAll(); }
+  else { b.dataset.armed="1"; b.textContent=`Confirm clear (${n})`; setTimeout(()=>{ delete b.dataset.armed; b.textContent="Clear Completed"; }, 4000); }
+});
+
+/* =========================================================
+   6. ALERT ENGINE — checks while page is open, alerts once
+   ========================================================= */
+const alertQueue = [];
+let currentAlert = null, titleFlash = null, lastCheck = 0;
+
+function checkReminders(){
+  lastCheck = Date.now();
+  let changed = false;
+  for(const r of state.reminders){
+    if(!r.done && !r.alerted && r.due <= Date.now()){
+      r.alerted = true; changed = true;              // mark first → can never alert twice
+      const missed = Date.now() - r.due > 2*60000;
+      if(!alertQueue.some(a=>a.id===r.id) && currentAlert?.id !== r.id) alertQueue.push({id:r.id, missed});
+    }
+  }
+  if(changed) saveReminders();
+  if(!currentAlert && alertQueue.length) showNextAlert();
+  renderReminders(); renderNext(); renderWatch();
+}
+
+function showNextAlert(){
+  const next = alertQueue.shift(); if(!next) { currentAlert=null; stopTitleFlash(); return; }
+  const r = state.reminders.find(x=>x.id===next.id);
+  if(!r || r.done){ return showNextAlert(); }
+  currentAlert = {id:r.id};
+  $("#alSigil").textContent = next.missed ? "⟡ MISSED REMINDER ⟡" : "⟡ SYSTEM ALERT ⟡";
+  $("#alTitle").textContent = r.title;
+  $("#alWhen").textContent = `${next.missed ? "Was due" : "Due"} ${fmtTime(r.due)} · ${fmtDate(r.due)}`;
+  $("#alNotes").textContent = r.notes || "";
+  $("#alQueue").textContent = alertQueue.length ? `${alertQueue.length} more alert${alertQueue.length>1?"s":""} waiting` : "";
+  const dlg = $("#dlgAlert");
+  if(!dlg.open){ try{ dlg.showModal(); }catch{ dlg.setAttribute("open",""); } }
+  const name = state.profile.name?.trim();
+  const spoken = `${name ? name + ", " : ""}${next.missed ? "you missed a reminder" : "reminder"}: ${r.title}${r.notes ? ". " + r.notes : ""}`;
+  if(state.profile.chime) chime();
+  setTimeout(()=>speak(spoken), state.profile.chime ? 650 : 0);
+  sendNotification(r, next.missed);
+  startTitleFlash(r.title);
+}
+function closeAlert(){
+  const dlg = $("#dlgAlert"); if(dlg.open) dlg.close();
+  if("speechSynthesis" in window) speechSynthesis.cancel();
+  currentAlert = null;
+  if(alertQueue.length) setTimeout(showNextAlert, 250); else stopTitleFlash();
+  renderAll();
+}
+$("#alDismiss").addEventListener("click", closeAlert);
+$("#alDone").addEventListener("click", ()=>{ if(currentAlert) setDone(currentAlert.id, true); closeAlert(); });
+$("#alSnooze").addEventListener("click", ()=>{
+  const r = currentAlert && state.reminders.find(x=>x.id===currentAlert.id);
+  if(r){ r.due = Date.now() + 10*60000; r.alerted = false; r.snoozed = true; saveReminders(); toast(`Snoozed until ${fmtTime(r.due)}.`); }
+  closeAlert();
+});
+$("#dlgAlert").addEventListener("cancel", e=>{ e.preventDefault(); closeAlert(); });
+
+function startTitleFlash(title){
+  stopTitleFlash(); let on=false; const base=document.title;
+  titleFlash = setInterval(()=>{ document.title = (on=!on) ? `⟡ ${title}` : base; }, 1000);
+}
+function stopTitleFlash(){ if(titleFlash){ clearInterval(titleFlash); titleFlash=null; renderWelcome(); } }
+
+/* ---------- browser notifications ---------- */
+const notifSupported = "Notification" in window;
+function sendNotification(r, missed){
+  if(!notifSupported || Notification.permission !== "granted") return;
+  try{
+    const n = new Notification(missed ? "J.A.R.V.I.S — Missed reminder" : "J.A.R.V.I.S — Reminder", {
+      body: `${r.title}${r.notes ? "\n" + r.notes : ""}`, tag: `jarvis-${r.id}`, renotify:false, requireInteraction:true
+    });
+    n.onclick = () => { window.focus(); n.close(); };
+  }catch{
+    // Some mobile browsers only allow notifications from a service worker. The on-page alert + voice still fire.
+    state._notifFallback = true; renderDiagnostics();
+  }
+}
+function renderNotifyButton(){
+  const b = $("#btnNotify");
+  if(!notifSupported){ b.textContent = "Notifications N/A"; b.disabled = true; b.title = "This browser does not support notifications"; return; }
+  const p = Notification.permission;
+  b.disabled = p !== "default" && p !== "granted";
+  b.classList.toggle("on", p==="granted");
+  b.textContent = p==="granted" ? "Notifications On" : p==="denied" ? "Notifications Blocked" : "Enable Notifications";
+  b.title = p==="denied" ? "Blocked in browser settings. Allow notifications for this site, then reload." : p==="granted" ? "Click to send a test notification" : "";
+}
+$("#btnNotify").addEventListener("click", async ()=>{
+  if(!notifSupported) return;
+  if(Notification.permission === "granted"){
+    try{ new Notification("J.A.R.V.I.S — Test", {body:"Notifications are working, Hunter.", tag:"jarvis-test"}); toast("Test notification sent."); }
+    catch{ state._notifFallback=true; toast("This browser only shows page alerts here, not system notifications.", "err"); }
+    renderDiagnostics(); return;
+  }
+  if(!window.isSecureContext && location.protocol !== "file:"){
+    toast("Notifications need HTTPS or a local file. Open the page over https://.", "err");
+  }
+  try{
+    const res = await Notification.requestPermission();
+    if(res==="granted") toast("Notifications enabled.");
+    else if(res==="denied") toast("Notifications blocked. You can allow them in your browser's site settings.", "err");
+    else toast("Notification permission was dismissed.");
+  }catch{ toast("This browser couldn't request notification permission.", "err"); }
+  renderNotifyButton(); renderDiagnostics();
+});
+
+/* ---------- voice (text-to-speech) ---------- */
+const ttsSupported = "speechSynthesis" in window && "SpeechSynthesisUtterance" in window;
+let voices = [];
+function loadVoices(){
+  if(!ttsSupported) return;
+  voices = speechSynthesis.getVoices();
+  const sel = $("#sVoice"), keep = state.profile.voiceURI;
+  sel.textContent = ""; sel.append(el("option",{value:""},"System default"));
+  const sorted = [...voices].sort((a,b)=> (b.lang.startsWith("en")-a.lang.startsWith("en")) || a.name.localeCompare(b.name));
+  for(const v of sorted) sel.append(el("option",{value:v.voiceURI}, `${v.name} (${v.lang})`));
+  sel.value = voices.some(v=>v.voiceURI===keep) ? keep : "";
+  renderDiagnostics();
+}
+if(ttsSupported){ loadVoices(); speechSynthesis.addEventListener?.("voiceschanged", loadVoices); }
+
+let userActivated = false;
+["pointerdown","keydown","touchstart"].forEach(t=>addEventListener(t, ()=>{ if(!userActivated){ userActivated=true; renderDiagnostics(); } }, {once:true, passive:true}));
+
+function speak(text, force=false){
+  if(!ttsSupported || (!state.profile.voiceOn && !force)) return false;
+  try{
+    speechSynthesis.cancel();
+    const u = new SpeechSynthesisUtterance(text);
+    const v = voices.find(v=>v.voiceURI===state.profile.voiceURI);
+    if(v){ u.voice = v; u.lang = v.lang; }
+    u.rate = Number(state.profile.rate) || 1; u.pitch = .95;
+    speechSynthesis.speak(u); return true;
+  }catch{ return false; }
+}
+$("#btnVoiceTest").addEventListener("click", ()=>{
+  if(!ttsSupported){ toast("This browser has no text-to-speech engine.", "err"); return; }
+  const name = state.profile.name?.trim() || "Hunter";
+  speak(`Voice engine online. Welcome back, ${name}. All systems are ready.`, true);
+  toast(state.profile.voiceOn ? "Speaking test message…" : "Speaking test (voice alerts are off in Profile).");
+});
+
+let audioCtx = null;
+function chime(){
+  try{
+    audioCtx = audioCtx || new (window.AudioContext || window.webkitAudioContext)();
+    const t = audioCtx.currentTime;
+    [659.25, 987.77, 1318.5].forEach((f,i)=>{
+      const o = audioCtx.createOscillator(), g = audioCtx.createGain();
+      o.type="sine"; o.frequency.value=f; o.connect(g); g.connect(audioCtx.destination);
+      g.gain.setValueAtTime(0, t+i*.12); g.gain.linearRampToValueAtTime(.12, t+i*.12+.02); g.gain.exponentialRampToValueAtTime(.0001, t+i*.12+.5);
+      o.start(t+i*.12); o.stop(t+i*.12+.55);
+    });
+  }catch{}
+}
+
+/* =========================================================
+   7. QUESTS + XP
+   ========================================================= */
+const QUEST_XP = { daily:10, main:50, side:20 };
+const RANKS = [[30,"S"],[20,"A"],[15,"B"],[10,"C"],[5,"D"],[1,"E"]];
+const xpToNext = lvl => 100 + (lvl-1)*50;      // L1→2: 100, L2→3: 150, …
+function levelInfo(xp){
+  let lvl = 1, rem = xp;
+  while(rem >= xpToNext(lvl)){ rem -= xpToNext(lvl); lvl++; }
+  return { lvl, into: rem, need: xpToNext(lvl), rank: RANKS.find(([min])=>lvl>=min)[1] };
+}
+function resetDailyQuests(){
+  const today = dayKey(); let changed=false;
+  for(const q of state.quests) if(q.type==="daily" && q.done && q.doneDay !== today){ q.done=false; q.doneDay=null; changed=true; }
+  if(changed) saveQuests();
+  return changed;
+}
+function renderPlayer(){
+  const {lvl, into, need, rank} = levelInfo(state.player.xp);
+  $("#rankBadge").textContent = `${rank}-RANK · LV ${lvl}`;
+  const pct = Math.round(into/need*100);
+  $("#xpfill").style.width = pct + "%";
+  $("#xpbar").setAttribute("aria-valuenow", pct);
+  $("#xptext").textContent = `${into} / ${need} XP`;
+  $("#totalXp").textContent = `TOTAL ${state.player.xp} XP`;
+}
+function completeQuest(id, cardEl){
+  const q = state.quests.find(x=>x.id===id); if(!q) return;
+  if(q.done){ // reopen — XP is never removed
+    q.done=false; q.doneDay=null; saveQuests(); renderQuests(); toast(`Quest reopened: ${q.title}`); return;
+  }
+  const today = dayKey();
+  q.done = true; q.doneDay = today;
+  let award = 0;
+  if(q.type==="daily"){
+    q.awardedDays = Array.isArray(q.awardedDays) ? q.awardedDays : [];
+    if(!q.awardedDays.includes(today)){ award = QUEST_XP.daily; q.awardedDays.push(today); q.awardedDays = q.awardedDays.slice(-60); }
+  } else if(!q.awarded){ award = QUEST_XP[q.type]; q.awarded = true; }
+
+  const before = levelInfo(state.player.xp).lvl;
+  if(award){ state.player.xp += award; savePlayer(); }
+  saveQuests(); renderQuests(); renderPlayer();
+
+  const card = $(`.quest[data-id="${id}"]`);
+  if(card){
+    card.classList.add("flash");
+    if(award){ card.append(el("span",{class:"xpfloat", text:`+${award} XP`})); }
+  }
+  toast(award ? `Quest complete: ${q.title} (+${award} XP)` : `Quest complete: ${q.title} (XP already earned)`, "xp");
+  const after = levelInfo(state.player.xp).lvl;
+  if(after > before) levelUp(after);
+}
+function levelUp(lvl){
+  const {rank} = levelInfo(state.player.xp);
+  $("#levelupTxt").textContent = `LEVEL ${lvl} · ${rank}-RANK HUNTER`;
+  const box = $("#levelup"); box.classList.remove("show"); void box.offsetWidth; box.classList.add("show");
+  setTimeout(()=>box.classList.remove("show"), 2300);
+  speak(`Level up. You have reached level ${lvl}.`);
+}
+function renderQuests(){
+  const list = $("#questList"); list.textContent = "";
+  const order = {main:0, daily:1, side:2};
+  const qs = state.quests.filter(q=>state.qfilter==="all"||q.type===state.qfilter)
+    .sort((a,b)=> (a.done-b.done) || order[a.type]-order[b.type] || a.createdAt-b.createdAt);
+  if(!qs.length){ list.append(el("div",{class:"empty"}, el("b",{text:"// QUEST LOG EMPTY"}), "Add a quest to start earning XP.")); return; }
+  const check = () => { const s = document.createElementNS("http://www.w3.org/2000/svg","svg"); s.setAttribute("viewBox","0 0 24 24"); s.innerHTML='<path d="M4 12l5 5L20 6" fill="none" stroke="#fff" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>'; return s; };
+  for(const q of qs){
+    let sub;
+    if(q.type==="daily") sub = q.done ? "Done today · resets at midnight" : `+${QUEST_XP.daily} XP today`;
+    else sub = q.awarded ? (q.done ? "Cleared · XP earned" : "XP already earned") : `+${QUEST_XP[q.type]} XP on completion`;
+    list.append(el("div",{class:`quest${q.done?" done":""}`, "data-id":q.id},
+      el("button",{class:"qcheck", type:"button", "aria-pressed":String(!!q.done), "aria-label":`${q.done?"Reopen":"Complete"} quest ${q.title}`, onclick:()=>completeQuest(q.id)}, check()),
+      el("div",{class:"qt"}, el("div",{text:q.title}), el("small",{text:sub})),
+      el("span",{class:`qtype ${q.type}`, text:q.type.toUpperCase()}),
+      el("button",{class:"del", type:"button", "aria-label":`Delete quest ${q.title}`, title:"Delete quest", onclick:()=>deleteQuest(q.id)}, "×")
+    ));
+  }
+}
+function deleteQuest(id){
+  const q = state.quests.find(x=>x.id===id); if(!q) return;
+  const card = $(`.quest[data-id="${id}"]`), btn = card && card.querySelector(".del");
+  if(btn && !btn.dataset.armed){ btn.dataset.armed="1"; btn.textContent="Delete?"; btn.style.fontSize="12px"; btn.style.color="var(--danger)";
+    setTimeout(()=>{ if(btn.isConnected){ delete btn.dataset.armed; btn.textContent="×"; btn.style.fontSize=""; btn.style.color=""; } }, 3000); return; }
+  state.quests = state.quests.filter(x=>x.id!==id); saveQuests(); renderQuests(); toast(`Quest removed: ${q.title}. Earned XP is kept.`);
+}
+$("#questForm").addEventListener("submit", e=>{
+  e.preventDefault();
+  const t = $("#qTitle"), title = t.value.trim(), type = $("#qType").value;
+  if(!title){ t.classList.add("bad"); t.focus(); toast("Name the quest first.", "err"); return; }
+  t.classList.remove("bad");
+  if(state.quests.some(q=>q.type===type && q.title.toLowerCase()===title.toLowerCase())){ toast("That quest is already in your log.", "err"); return; }
+  state.quests.push({id:uid(), title, type, done:false, doneDay:null, awarded:false, awardedDays:[], createdAt:Date.now()});
+  saveQuests(); t.value=""; renderQuests(); toast(`${type[0].toUpperCase()+type.slice(1)} quest added: ${title}`, "xp");
+});
+$("#qTitle").addEventListener("input", e=>e.target.classList.remove("bad"));
+$("#qtabs").addEventListener("click", e=>{
+  const b = e.target.closest("[data-q]"); if(!b) return;
+  state.qfilter = b.dataset.q; for(const c of $("#qtabs").children) c.setAttribute("aria-pressed", String(c===b)); renderQuests();
+});
+
+/* =========================================================
+   8. DIAGNOSTICS (real values only)
+   ========================================================= */
+function setDiag(id, text, s){ const d=$(id); d.dataset.s = s||""; d.querySelector("span").textContent = text; }
+let battery = null;
+if(navigator.getBattery){ navigator.getBattery().then(b=>{ battery=b; ["levelchange","chargingchange"].forEach(ev=>b.addEventListener(ev, renderDiagnostics)); renderDiagnostics(); }).catch(()=>{}); }
+
+function renderDiagnostics(){
+  if(!booted) return; // voice/battery events can fire before boot finishes
+  const online = navigator.onLine;
+  setDiag("#dNet", online ? "Online" : "Offline", online?"ok":"warn");
+  $("#brand").classList.toggle("offline", !online);
+  $("#sysState").textContent = online ? "ONLINE" : "ONLINE · OFFLINE MODE";
+
+  if(!notifSupported) setDiag("#dNotif","Not supported","bad");
+  else {
+    const p = Notification.permission;
+    if(p==="granted" && state._notifFallback) setDiag("#dNotif","Allowed · page alerts only","warn");
+    else setDiag("#dNotif", {granted:"Allowed", denied:"Blocked", default:"Not requested"}[p] || p, p==="granted"?"ok":p==="denied"?"bad":"warn");
+  }
+  if(!ttsSupported) setDiag("#dVoice","Not supported","bad");
+  else if(!voices.length) setDiag("#dVoice", performance.now() > 4000 ? "No voices installed" : "Loading voices…", performance.now() > 4000 ? "bad" : "warn");
+  else if(!userActivated) setDiag("#dVoice",`${voices.length} voices · tap page once to arm`,"warn");
+  else setDiag("#dVoice", `Ready · ${voices.length} voices${state.profile.voiceOn?"":" (alerts off)"}`, state.profile.voiceOn?"ok":"warn");
+
+  if(battery){
+    const pct = Math.round(battery.level*100);
+    setDiag("#dBatt", `${pct}%${battery.charging?" · charging":""}`, pct<=15 && !battery.charging ? "bad" : pct<=30 ? "warn" : "ok");
+  } else setDiag("#dBatt","Not available in this browser","");
+  setDiag("#dScreen", `${window.innerWidth}×${window.innerHeight} view · ${screen.width}×${screen.height} screen`, "ok");
+  setDiag("#dAI","Not configured","");
+  setDiag("#dStore", Store.ok ? "Local storage active" : "Unavailable · not saving", Store.ok?"ok":"bad");
+  renderWatch();
+}
+function renderWatch(){
+  const pending = state.reminders.filter(r=>!r.done && !r.alerted).length;
+  setDiag("#dWatch", lastCheck ? `Active · ${pending} armed · checked ${new Date(lastCheck).toLocaleTimeString([], {hour:"2-digit",minute:"2-digit",second:"2-digit"})}` : "Starting…", lastCheck?"ok":"warn");
+}
+$("#btnDiagRefresh").addEventListener("click", ()=>{ checkReminders(); renderDiagnostics(); toast("Diagnostics refreshed."); });
+addEventListener("online", ()=>{ renderDiagnostics(); toast("Connection restored."); });
+addEventListener("offline", ()=>{ renderDiagnostics(); toast("You're offline. Reminders still work.", "err"); });
+let rT; addEventListener("resize", ()=>{ clearTimeout(rT); rT=setTimeout(()=>{ renderDiagnostics(); fx.resize(); }, 150); });
+
+/* =========================================================
+   9. PROFILE / SETTINGS DIALOG
+   ========================================================= */
+const dlgS = $("#dlgSettings");
+function openSettings(){
+  $("#sName").value = state.profile.name || ""; $("#eName").textContent=""; $("#sName").classList.remove("bad");
+  $("#sVoiceOn").checked = !!state.profile.voiceOn; $("#sChime").checked = !!state.profile.chime;
+  $("#sRate").value = state.profile.rate || 1; $("#sRateVal").textContent = `${Number($("#sRate").value).toFixed(1)}×`;
+  $("#sVoice").value = state.profile.voiceURI || ""; $("#sVoice").disabled = !ttsSupported; $("#sVoiceOn").disabled = !ttsSupported;
+  try{ dlgS.showModal(); }catch{ dlgS.setAttribute("open",""); }
+  setTimeout(()=>$("#sName").focus(), 50);
+}
+$("#btnSettings").addEventListener("click", openSettings);
+dlgS.addEventListener("click", e=>{ if(e.target.closest("[data-close]")) dlgS.close(); });
+$("#sRate").addEventListener("input", e=>{ $("#sRateVal").textContent = `${Number(e.target.value).toFixed(1)}×`; });
+$("#setForm").addEventListener("submit", e=>{
+  e.preventDefault();
+  const name = $("#sName").value.trim().replace(/\s+/g," ");
+  if(name && !/^[\p{L}\p{N} ._'\-]{1,24}$/u.test(name)){ $("#sName").classList.add("bad"); $("#eName").textContent="Use letters, numbers, spaces, . _ ' or - (max 24)."; return; }
+  Object.assign(state.profile, { name, voiceOn: $("#sVoiceOn").checked, chime: $("#sChime").checked, rate: Number($("#sRate").value)||1, voiceURI: $("#sVoice").value });
+  saveProfile(); renderWelcome(); renderDiagnostics(); dlgS.close();
+  toast(name ? `Profile saved. Welcome back, ${name}.` : "Profile saved.");
+});
+
+$("#btnExport").addEventListener("click", ()=>{
+  const data = { app:"JARVIS_Shadow_Reminder", version:2, exportedAt:new Date().toISOString(), reminders:state.reminders, quests:state.quests, player:state.player, profile:state.profile };
+  const json = JSON.stringify(data,null,2);
+  let framed = false; try{ framed = window.top !== window.self; }catch{ framed = true; }
+  if(framed){
+    // Hosted inside a sandboxed frame, downloads are blocked, so copy the backup instead.
+    const done = () => toast("Backup copied. Paste it into a note or a .json file to keep it.");
+    const fail = () => toast("Couldn't copy the backup here. Open the downloaded HTML file to export.", "err");
+    try{ navigator.clipboard.writeText(json).then(done, fail); }catch{ fail(); }
+    return;
+  }
+  const blob = new Blob([json], {type:"application/json"});
+  const a = el("a",{href:URL.createObjectURL(blob), download:`jarvis-backup-${dayKey()}.json`}); document.body.append(a); a.click(); a.remove();
+  setTimeout(()=>URL.revokeObjectURL(a.href), 2000); toast("Backup downloaded.");
+});
+$("#btnImport").addEventListener("click", ()=>$("#importFile").click());
+$("#importFile").addEventListener("change", async e=>{
+  const f = e.target.files[0]; e.target.value=""; if(!f) return;
+  try{
+    const data = JSON.parse(await f.text());
+    const rems = (Array.isArray(data) ? data : data.reminders || []).map(normalizeReminder).filter(Boolean);
+    const existing = new Set(state.reminders.map(r=>r.id));
+    const addR = rems.filter(r=>!existing.has(r.id));
+    state.reminders.push(...addR);
+    let addQ = 0;
+    if(Array.isArray(data.quests)){ const ids = new Set(state.quests.map(q=>q.id)); for(const q of data.quests) if(q && q.id && q.title && QUEST_XP[q.type] && !ids.has(q.id)){ state.quests.push(q); addQ++; } }
+    if(data.player && typeof data.player.xp==="number" && data.player.xp > state.player.xp){ state.player.xp = Math.floor(data.player.xp); savePlayer(); }
+    saveReminders(); saveQuests(); renderAll();
+    toast(`Imported ${addR.length} reminder${addR.length===1?"":"s"} and ${addQ} quest${addQ===1?"":"s"}.`);
+  }catch{ toast("That file isn't a valid JARVIS backup.", "err"); }
+});
+
+/* =========================================================
+   10. BACKGROUND FX (lightweight particles, pauses when hidden)
+   ========================================================= */
+const fx = (() => {
+  const c = $("#fx"), ctx = c.getContext("2d");
+  const reduce = matchMedia("(prefers-reduced-motion: reduce)").matches;
+  let w=0,h=0,dpr=1,parts=[],raf=null,last=0;
+  function resize(){
+    dpr = Math.min(window.devicePixelRatio||1, 2); w = innerWidth; h = innerHeight;
+    c.width = w*dpr; c.height = h*dpr; ctx.setTransform(dpr,0,0,dpr,0,0);
+    const n = Math.round(Math.min(60, (w*h)/26000));
+    parts = Array.from({length:n}, ()=>spawn(true));
+    if(reduce) draw(0);
+  }
+  function spawn(any){
+    return { x:Math.random()*w, y: any ? Math.random()*h : h+10, r:Math.random()*1.6+.4, vy:-(Math.random()*.25+.06), vx:(Math.random()-.5)*.12,
+      a:Math.random()*.6+.2, hue: Math.random()<.6 ? "63,224,255" : "155,92,255", tw:Math.random()*Math.PI*2 };
+  }
+  function draw(t){
+    ctx.clearRect(0,0,w,h);
+    for(const p of parts){
+      p.x += p.vx; p.y += p.vy; p.tw += .02;
+      if(p.y < -10) Object.assign(p, spawn(false));
+      const a = p.a * (.6 + .4*Math.sin(p.tw));
+      ctx.beginPath(); ctx.fillStyle = `rgba(${p.hue},${a})`; ctx.shadowColor = `rgba(${p.hue},${a})`; ctx.shadowBlur = 8;
+      ctx.arc(p.x, p.y, p.r, 0, Math.PI*2); ctx.fill();
+    }
+  }
+  function loop(t){ if(t-last > 33){ draw(t); last=t; } raf = requestAnimationFrame(loop); } // ~30fps cap for battery
+  function start(){ if(!reduce && !raf) raf = requestAnimationFrame(loop); }
+  function stop(){ if(raf){ cancelAnimationFrame(raf); raf=null; } }
+  resize(); start();
+  document.addEventListener("visibilitychange", ()=> document.hidden ? stop() : start());
+  return { resize };
+})();
+
+/* =========================================================
+   11. BOOT
+   ========================================================= */
+function renderAll(){ renderReminders(); renderNext(); renderQuests(); renderPlayer(); renderWatch(); }
+
+booted = true;
+if(!Store.ok) $("#storageBanner").classList.add("show");
+resetForm(); renderWelcome(); renderNotifyButton(); tickClock();
+resetDailyQuests(); renderAll(); renderDiagnostics();
+setInterval(tickClock, 1000);
+setTimeout(renderDiagnostics, 4200);             // settle "Loading voices…" into a real answer
+setTimeout(checkReminders, 800);                 // catch reminders missed while closed
+setInterval(checkReminders, 10000);              // regular check while open
+setInterval(()=>{ if(resetDailyQuests()) renderQuests(); }, 60000);
+document.addEventListener("visibilitychange", ()=>{ if(!document.hidden){ checkReminders(); if(resetDailyQuests()) renderQuests(); renderNotifyButton(); renderDiagnostics(); } });
+// Keep tabs in sync if the app is open in two tabs.
+addEventListener("storage", e=>{
+  if(e.key===KEYS.reminders){ state.reminders = (Store.get(KEYS.reminders,[])||[]).map(normalizeReminder).filter(Boolean); renderAll(); }
+  if(e.key===KEYS.quests){ state.quests = (Store.get(KEYS.quests,[])||[]).filter(q => q && q.id && q.title && QUEST_XP[q.type]); renderQuests(); }
+  if(e.key===KEYS.player){ state.player = Object.assign({xp:0}, Store.get(KEYS.player,{})); renderPlayer(); }
+  if(e.key===KEYS.profile){ state.profile = Object.assign(state.profile, Store.get(KEYS.profile,{})); renderWelcome(); }
+});
+</script>
+</body>
+</html>
