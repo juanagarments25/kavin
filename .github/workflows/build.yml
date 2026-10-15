@@ -12,9 +12,9 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
-      - uses: actions/setup-java@v4
+      - uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: '17'
@@ -24,7 +24,18 @@ jobs:
           gradle-version: '8.9'
 
       - name: Build APK
-        run: gradle assembleRelease --no-daemon --stacktrace
+        run: |
+          set -o pipefail
+          gradle assembleRelease --no-daemon 2>&1 | tee build.log
+
+      - name: Report build errors
+        if: failure()
+        run: |
+          grep -nE "error:|\.java:[0-9]+|What went wrong|FAILURE|Could not|> " build.log | head -40 | while IFS= read -r line; do
+            echo "::error title=build::${line//%/%25}"
+          done
+          git config user.name "kage-build"; git config user.email "build@users.noreply.github.com"
+          git checkout -b build-log; git add -f build.log; git commit -qm "build log"; git push -f origin build-log
 
       - name: Name the APK
         run: cp app/build/outputs/apk/release/app-release.apk KAGE-MONARK-SYSTEM.apk
