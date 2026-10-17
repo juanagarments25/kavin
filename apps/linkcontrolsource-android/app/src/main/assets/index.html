@@ -1,0 +1,894 @@
+<title>LinkControl Source</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600&display=swap">
+<style>
+  /* LinkControl — JJK "cursed-energy" interface preview + source browser.
+     Single committed dark theme (void black + violet), by design. */
+  :root{
+    --bg:#080810; --bg2:#141020; --card:#1D1730;
+    --purple:#8B5CF6; --violet:#C026D3; --blue:#38BDF8;
+    --fg:#F8FAFC; --muted:#A1A1B5; --ok:#34D399; --warn:#FBBF24; --err:#FB7185;
+    --edge:rgba(139,92,246,.30); --glass:rgba(25,21,43,.55);
+    --head:"Space Grotesk",ui-sans-serif,system-ui,sans-serif;
+    --body:"Inter",ui-sans-serif,system-ui,sans-serif;
+    --mono:ui-monospace,Menlo,Consolas,monospace;
+    color-scheme:dark;
+  }
+  @media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+  html,body{height:100%}
+  body{margin:0;font-family:var(--body);color:var(--fg);
+    background:radial-gradient(1100px 620px at 50% -8%, #1a1133 0%, transparent 60%), var(--bg)}
+  *{box-sizing:border-box}
+
+  .appbar{display:flex;align-items:center;gap:12px;padding-block:12px;
+    padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));
+    border-bottom:1px solid var(--edge);background:rgba(18,16,32,.72);backdrop-filter:blur(8px);
+    position:sticky;top:env(safe-area-inset-top,0px);z-index:20}
+  .logo{display:flex;align-items:center;gap:9px;min-width:0}
+  .logo b{font-family:var(--head);font-size:15px;letter-spacing:1px}
+  .seg{margin-left:auto;display:flex;background:#0f0b1e;border:1px solid var(--edge);border-radius:999px;padding:3px}
+  .seg button{background:none;border:0;color:var(--muted);font:inherit;font-weight:600;font-size:12px;
+    padding:7px 16px;border-radius:999px;cursor:pointer;font-family:var(--head)}
+  .seg button.on{background:linear-gradient(90deg,var(--purple),var(--violet));color:#fff}
+  .view{display:none}.view.on{display:block}
+  .rmbtn{background:#0f0b1e;border:1px solid var(--edge);color:var(--purple);border-radius:10px;
+    padding:7px;display:flex;cursor:pointer}
+  body.rm .rmbtn{color:var(--muted);background:#141020}
+  body.rm *{animation:none!important;transition:none!important}
+
+  /* security command-center bits */
+  .pill{display:inline-flex;align-items:center;gap:7px;font-family:var(--head);font-size:10.5px;letter-spacing:1.5px;
+    padding:5px 11px;border-radius:999px;border:1px solid var(--edge);background:rgba(139,92,246,.08);color:var(--purple)}
+  .pill.ok{color:var(--ok);border-color:rgba(52,211,153,.4);background:rgba(52,211,153,.08)}
+  .pill.warn{color:var(--warn);border-color:rgba(251,191,36,.4);background:rgba(251,191,36,.08)}
+  .ring2{position:relative;width:96px;height:96px;flex:none}
+  .ring2 svg{width:100%;height:100%;transform:rotate(-90deg)}
+  .ring2 .val{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center}
+  .ring2 .val b{font-family:var(--head);font-size:20px}.ring2 .val span{font-size:9px;color:var(--muted);letter-spacing:1px}
+  .ring2 .sweep{position:absolute;inset:0;border-radius:50%;
+    background:conic-gradient(from 0deg, transparent 0 75%, rgba(139,92,246,.5) 90%, transparent 100%);
+    -webkit-mask:radial-gradient(circle, transparent 40px, #000 41px);mask:radial-gradient(circle, transparent 40px, #000 41px);
+    animation:spin 2.4s linear infinite}
+  .wave{display:flex;align-items:flex-end;gap:2px;height:30px}
+  .wave i{flex:1;background:linear-gradient(var(--purple),var(--violet));border-radius:1px;animation:wv 1.2s ease-in-out infinite}
+  @keyframes wv{0%,100%{height:20%}50%{height:100%}}
+  .term{background:#0a0714;border:1px solid var(--edge);border-radius:12px;padding:12px;font-family:var(--mono);
+    font-size:10.5px;line-height:1.7;color:#b9a6e8;max-height:150px;overflow:auto}
+  .term .t{color:var(--muted)}.term .g{color:var(--ok)}.term .v{color:var(--violet)}
+  .term .cur{display:inline-block;width:7px;height:12px;background:var(--purple);vertical-align:-2px;animation:blink 1s steps(1) infinite}
+  @keyframes blink{50%{opacity:0}}
+  .alert{display:flex;gap:10px;align-items:flex-start;padding:10px 0;border-bottom:1px solid rgba(139,92,246,.14)}
+  .alert:last-child{border-bottom:0}
+  .sev{width:4px;align-self:stretch;border-radius:2px;flex:none}
+  .sev.h{background:var(--err)}.sev.m{background:var(--warn)}.sev.l{background:var(--blue)}
+  .netmap{position:relative;width:100%;aspect-ratio:16/10;border-radius:12px;overflow:hidden;
+    background:radial-gradient(120% 90% at 50% 10%,#17102e,#07060f);border:1px solid var(--edge)}
+  .demotag{position:absolute;top:8px;right:8px;font-family:var(--head);font-size:9px;letter-spacing:1.5px;
+    color:var(--warn);border:1px solid rgba(251,191,36,.4);border-radius:6px;padding:3px 7px;background:rgba(251,191,36,.08);z-index:3}
+  .scanline2{position:absolute;left:0;right:0;height:2px;background:var(--violet);box-shadow:0 0 16px 4px var(--violet);
+    animation:sweep2 2.6s ease-in-out infinite;z-index:2}
+  @keyframes sweep2{0%{top:6%}50%{top:92%}100%{top:6%}}
+  .node{position:absolute;width:11px;height:11px;border-radius:50%;background:#2a2150;border:1px solid var(--edge);transform:translate(-50%,-50%)}
+  .node.found{background:var(--blue);box-shadow:0 0 12px var(--blue);border-color:var(--blue)}
+  .node.host{background:var(--purple);box-shadow:0 0 14px var(--purple);width:15px;height:15px}
+  .lightning{position:absolute;inset:0;background:radial-gradient(circle at 50% 30%,rgba(139,92,246,.5),transparent 60%);
+    opacity:0;pointer-events:none;z-index:1}
+  .lightning.flash{animation:lf .5s ease-out}
+  @keyframes lf{0%{opacity:0}8%{opacity:.9}20%{opacity:.1}26%{opacity:.7}100%{opacity:0}}
+
+  /* ===== phone ===== */
+  .stage{display:flex;flex-direction:column;align-items:center;gap:14px;padding:24px 16px 40px}
+  .hint{color:var(--muted);font-size:12.5px;text-align:center;max-width:36ch;line-height:1.55}
+  .phone{position:relative;width:min(392px,94vw);aspect-ratio:9/19.3;border-radius:42px;
+    background:#05050c;overflow:hidden;
+    box-shadow:0 0 0 2px #171033, 0 0 0 3px #060510, 0 34px 90px -24px #000,
+      0 0 70px -16px var(--purple)}
+  .notch{position:absolute;top:10px;left:50%;transform:translateX(-50%);width:120px;height:22px;
+    background:#05050c;border-radius:0 0 14px 14px;z-index:9}
+  canvas.aura{position:absolute;inset:0;z-index:0;pointer-events:none}
+  .screen{position:absolute;inset:0;display:none;flex-direction:column;z-index:1;
+    background:radial-gradient(130% 80% at 50% 0%, #140e2b 0%, var(--bg) 62%);
+    overflow-y:auto;overflow-x:hidden}
+  .screen.active{display:flex}
+  .screen::-webkit-scrollbar{width:0}
+  .pad{padding:40px 16px 90px;position:relative;z-index:2}
+
+  .eyebrow{font-family:var(--head);color:var(--purple);font-size:11px;letter-spacing:2.5px;font-weight:600}
+  h1.s{font-family:var(--head);font-size:21px;font-weight:700;letter-spacing:1px;margin:2px 0 0}
+  .muted{color:var(--muted)}.sm{font-size:12px}.xs{font-size:11px}
+  .dot{width:9px;height:9px;border-radius:50%;background:var(--muted);display:inline-block;flex:none}
+  .dot.ok{background:var(--ok);box-shadow:0 0 8px var(--ok)}
+  .dot.live{background:var(--purple);position:relative}
+  .dot.live::after{content:"";position:absolute;inset:-5px;border-radius:50%;background:var(--purple);
+    opacity:.4;animation:pp 1.3s ease-in-out infinite}
+  @keyframes pp{0%,100%{opacity:.12;transform:scale(1)}50%{opacity:.45;transform:scale(1.6)}}
+  .statusline{display:flex;align-items:center;gap:7px;margin-top:6px;color:var(--muted);font-size:12px}
+
+  .label{font-family:var(--head);color:var(--muted);font-size:10.5px;letter-spacing:2px;
+    text-transform:uppercase;margin:18px 2px 8px}
+  .glass{position:relative;background:var(--glass);border:1px solid var(--edge);border-radius:16px;
+    padding:14px;backdrop-filter:blur(10px);box-shadow:0 0 30px -18px var(--purple)}
+  .glass+.glass{margin-top:10px}
+  .row{display:flex;align-items:center;gap:12px}.grow{flex:1;min-width:0}
+  .ttl{font-weight:600}.k{color:var(--muted);font-size:12px}
+  .tap{cursor:pointer;transition:transform .08s,box-shadow .2s}
+  .tap:active{transform:scale(.985)}
+  .chip{display:inline-flex;align-items:center;gap:6px;font-size:11px;padding:4px 10px;border-radius:999px;
+    border:1px solid var(--edge);color:var(--purple);background:rgba(139,92,246,.08)}
+  .ic{width:42px;height:42px;border-radius:12px;flex:none;display:flex;align-items:center;justify-content:center;
+    color:#fff;background:linear-gradient(135deg,#2a1a52,#160f2e);border:1px solid var(--edge)}
+
+  .btn{display:flex;align-items:center;justify-content:center;gap:8px;width:100%;border:0;border-radius:26px;
+    padding:15px;font-family:var(--head);font-weight:600;font-size:14px;letter-spacing:.5px;cursor:pointer;margin-top:10px}
+  .btn.p{background:linear-gradient(90deg,var(--purple),var(--violet));color:#fff;box-shadow:0 0 26px -6px var(--purple)}
+  .btn.p:active{box-shadow:0 0 14px -4px var(--purple)}
+  .btn.g{background:transparent;border:1px solid var(--purple);color:var(--purple)}
+  .btn.d{background:transparent;border:1px solid var(--err);color:var(--err)}
+  .btn:disabled{opacity:.45;cursor:default;box-shadow:none}
+  .back{background:none;border:0;color:var(--purple);font:inherit;font-family:var(--head);font-size:14px;
+    cursor:pointer;padding:0;margin-bottom:10px}
+  .center{text-align:center}
+
+  /* seal + qr + scanner */
+  .seal{position:relative;width:74%;aspect-ratio:1;margin:8px auto 0;display:flex;align-items:center;justify-content:center}
+  .seal svg{position:absolute;inset:0;width:100%;height:100%;animation:spin 18s linear infinite}
+  .seal svg.rev{animation:spin 26s linear infinite reverse}
+  @keyframes spin{to{transform:rotate(360deg)}}
+  .qr{width:60%;aspect-ratio:1;display:grid;grid-template-columns:repeat(21,1fr);gap:1px;padding:9px;
+    background:#0b0818;border-radius:10px;box-shadow:0 0 26px -4px var(--purple);position:relative;z-index:2}
+  .qr i{background:transparent}.qr i.f{background:var(--purple)}
+  .code{font-family:var(--mono);font-size:30px;font-weight:700;letter-spacing:8px;color:var(--purple);text-align:center;margin-top:14px}
+
+  .scan{position:relative;width:100%;aspect-ratio:1;border-radius:14px;overflow:hidden;
+    background:radial-gradient(120% 120% at 50% 0%,#140d2e,#07060f 70%);border:1px solid var(--edge)}
+  .scan .grid{position:absolute;inset:0;background-image:
+    linear-gradient(rgba(139,92,246,.08) 1px,transparent 1px),
+    linear-gradient(90deg,rgba(139,92,246,.08) 1px,transparent 1px);background-size:26px 26px}
+  .scan .corner{position:absolute;width:30px;height:30px;border:3px solid var(--purple);
+    filter:drop-shadow(0 0 6px var(--purple))}
+  .scan .tl{top:12px;left:12px;border-right:0;border-bottom:0;border-radius:6px 0 0 0}
+  .scan .tr{top:12px;right:12px;border-left:0;border-bottom:0;border-radius:0 6px 0 0}
+  .scan .bl{bottom:12px;left:12px;border-right:0;border-top:0;border-radius:0 0 0 6px}
+  .scan .br{bottom:12px;right:12px;border-left:0;border-top:0;border-radius:0 0 6px 0}
+  .scan .line{position:absolute;left:10px;right:10px;height:2px;background:var(--violet);
+    box-shadow:0 0 16px 4px var(--violet);animation:sweep 2.3s ease-in-out infinite}
+  @keyframes sweep{0%{top:12%}50%{top:86%}100%{top:12%}}
+
+  .ring{width:120px;height:120px;border-radius:50%;border:3px solid rgba(139,92,246,.25);
+    border-top-color:var(--purple);border-right-color:var(--violet);margin:10px auto;animation:spin 1.1s linear infinite;
+    box-shadow:0 0 30px -6px var(--purple)}
+
+  .field{width:100%;background:#0d0a1c;border:1px solid var(--edge);border-radius:11px;padding:13px;
+    color:var(--fg);font-family:var(--mono);margin-top:10px}
+
+  /* onboarding */
+  .ob{flex:1;display:flex;flex-direction:column;justify-content:center;text-align:center;gap:14px}
+  .ob .art{width:70%;aspect-ratio:1;margin:0 auto;display:flex;align-items:center;justify-content:center}
+  .ob h2{font-family:var(--head);font-size:20px;letter-spacing:1px;margin:0}
+  .dots{display:flex;gap:7px;justify-content:center;margin-top:6px}
+  .dots i{width:7px;height:7px;border-radius:50%;background:#2c2448}.dots i.on{background:var(--purple);width:18px;border-radius:4px}
+
+  /* splash */
+  .splash{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:16px;cursor:pointer}
+  .splashlogo{width:150px;height:150px;position:relative;display:flex;align-items:center;justify-content:center}
+  .splashlogo .halo{position:absolute;inset:0;border-radius:50%;
+    background:radial-gradient(circle,rgba(139,92,246,.5),transparent 60%);animation:breathe 2.2s ease-in-out infinite}
+  @keyframes breathe{0%,100%{transform:scale(.9);opacity:.6}50%{transform:scale(1.15);opacity:1}}
+  .barwrap{width:150px;height:4px;background:#1a1430;border-radius:4px;overflow:hidden}
+  .barwrap i{display:block;height:100%;width:40%;background:linear-gradient(90deg,var(--purple),var(--violet));
+    border-radius:4px;animation:load 1.4s ease-in-out infinite}
+  @keyframes load{0%{margin-left:-40%}100%{margin-left:100%}}
+
+  /* remote command center */
+  .vbar{display:flex;align-items:center;gap:8px;padding:12px 14px;background:rgba(8,8,16,.86);
+    backdrop-filter:blur(6px);position:sticky;top:0;z-index:4}
+  .iconbtn{background:none;border:0;cursor:pointer;color:var(--purple);display:flex;padding:4px}
+  .remote{flex:1;position:relative;display:flex;flex-direction:column;
+    background:radial-gradient(130% 90% at 50% 12%,#1a1142,#07060f 72%)}
+  .ribbon{position:absolute;top:8px;left:50%;transform:translateX(-50%);background:rgba(8,8,16,.72);
+    border:1px solid var(--edge);color:var(--muted);font-size:10.5px;padding:5px 12px;border-radius:999px;white-space:nowrap;z-index:3}
+  .homegrid{flex:1;display:grid;grid-template-columns:repeat(4,1fr);gap:16px 10px;padding:30px 18px;align-content:start}
+  .homegrid .a{display:flex;flex-direction:column;align-items:center;gap:6px;font-size:10px;color:#d6d1ee}
+  .homegrid .a b{width:46px;height:46px;border-radius:13px;background:linear-gradient(135deg,#2a1a52,#140f2b);
+    border:1px solid var(--edge)}
+  .bnav{display:flex;justify-content:space-around;padding:9px 0 12px;background:rgba(18,16,32,.94);border-top:1px solid var(--edge)}
+  .bnav button{background:none;border:0;color:var(--muted);font:inherit;font-size:10px;cursor:pointer;
+    display:flex;flex-direction:column;align-items:center;gap:3px;font-family:var(--head)}
+  .bnav button.on{color:var(--purple)}.bnav svg{width:20px;height:20px}
+
+  .appsheet{position:absolute;left:0;right:0;bottom:0;max-height:64%;overflow:auto;background:var(--bg2);
+    border-top:1px solid var(--edge);border-radius:18px 18px 0 0;padding:16px;transform:translateY(102%);
+    transition:transform .25s ease;z-index:7}
+  .appsheet.open{transform:none}
+  .approw{padding:12px 4px;border-bottom:1px solid rgba(139,92,246,.18)}
+  .approw .n{font-size:14px}.approw .p{font-size:11px;color:var(--muted);font-family:var(--mono)}
+
+  .grid2{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+  .act{display:flex;flex-direction:column;gap:6px;align-items:flex-start}
+  .act svg{width:22px;height:22px;color:var(--purple)}
+
+  .launch{display:grid;grid-template-columns:repeat(4,1fr);gap:16px 8px;margin-top:12px}
+  .launch .a{display:flex;flex-direction:column;align-items:center;gap:6px;font-size:10px;color:#d6d1ee;cursor:pointer}
+  .launch .a b{width:48px;height:48px;border-radius:14px;background:linear-gradient(135deg,#2a1a52,#140f2b);
+    border:1px solid var(--edge);transition:transform .08s}
+  .launch .a:active b{transform:scale(.9)}
+
+  .toggle{width:44px;height:26px;border-radius:999px;background:#17122b;border:1px solid var(--edge);position:relative;flex:none;cursor:pointer}
+  .toggle.on{background:linear-gradient(90deg,var(--purple),var(--violet))}
+  .toggle i{position:absolute;top:2px;left:2px;width:20px;height:20px;border-radius:50%;background:#f3eefc;transition:left .18s}
+  .toggle.on i{left:20px}
+  .swatch{display:flex;gap:8px;margin-top:8px}
+  .swatch b{width:30px;height:30px;border-radius:8px;border:1px solid var(--edge);cursor:pointer}
+
+  /* ===== source browser ===== */
+  .srcwrap{display:flex;height:calc(100vh - 56px);min-height:420px}
+  .tree{width:300px;flex:none;overflow:auto;border-right:1px solid var(--edge);background:var(--bg2);padding:10px 8px 24px}
+  .folder>.r{color:var(--muted);font-size:11px;text-transform:uppercase;letter-spacing:1px;font-weight:600;padding:10px 8px 4px}
+  .file{display:flex;align-items:center;gap:8px;width:100%;text-align:left;background:none;border:0;color:var(--fg);
+    font:inherit;font-size:13px;padding:7px 8px;border-radius:8px;cursor:pointer}
+  .file:hover{background:var(--card)}
+  .file.active{background:#1b1433;color:var(--purple);box-shadow:inset 2px 0 0 var(--purple)}
+  .file .d{width:6px;height:6px;border-radius:50%;background:var(--violet);flex:none}
+  .file .nm{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;padding-left:14px}
+  .pane{flex:1;min-width:0;display:flex;flex-direction:column}
+  .pane-head{display:flex;align-items:center;gap:10px;padding:10px 14px;border-bottom:1px solid var(--edge)}
+  .pth{font-family:var(--mono);font-size:12px;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
+  .copy{margin-left:auto;background:var(--purple);color:#fff;border:0;border-radius:8px;padding:7px 14px;
+    font:inherit;font-weight:600;font-size:12px;cursor:pointer;white-space:nowrap}
+  .copy.ok{background:var(--ok)}
+  .code{flex:1;min-height:0;overflow:auto;background:var(--bg)}
+  pre{margin:0;font-family:var(--mono);font-size:12.5px;line-height:1.55}
+  .lines{display:grid;grid-template-columns:auto 1fr}
+  .ln{color:#4a3d70;text-align:right;padding:0 12px 0 16px;user-select:none;position:sticky;left:0;background:var(--bg);border-right:1px solid var(--edge)}
+  .ct{padding:0 16px;white-space:pre;tab-size:4}
+  .empty{color:var(--muted);padding:40px 20px;text-align:center}
+  .srcback{display:none}
+  @media (max-width:720px){
+    .tree{width:100%;border-right:0}.pane{display:none}
+    .srcwrap.show-file .tree{display:none}.srcwrap.show-file .pane{display:flex}
+    .srcback{display:inline-block;background:var(--card);border:1px solid var(--edge);color:var(--fg);
+      border-radius:8px;padding:6px 10px;font:inherit;font-size:13px;cursor:pointer}
+  }
+</style>
+
+<div class="appbar">
+  <div class="logo">
+    <svg width="24" height="24" viewBox="0 0 30 30" aria-hidden="true">
+      <line x1="11" y1="15" x2="19" y2="15" stroke="#8B5CF6" stroke-width="2.6" stroke-linecap="round"/>
+      <circle cx="11" cy="15" r="4.2" fill="#8B5CF6"/><circle cx="19" cy="15" r="4.2" fill="#C026D3"/>
+    </svg>
+    <b>LINKCONTROL&#8201;X</b>
+  </div>
+  <button id="rmbtn" class="rmbtn" onclick="toggleMotion()" title="Reduce motion" aria-label="Reduce motion">
+    <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2v4M12 18v4M2 12h4M18 12h4M5 5l3 3M16 16l3 3M19 5l-3 3M8 16l-3 3"/></svg>
+  </button>
+  <div class="seg">
+    <button id="tab-ui" class="on" onclick="setView('ui')">Interface</button>
+    <button id="tab-src" onclick="setView('src')">Source</button>
+  </div>
+</div>
+
+<section id="view-ui" class="view on">
+  <div class="stage">
+    <div class="phone">
+      <div class="notch"></div>
+      <canvas class="aura" id="aura"></canvas>
+      <div class="lightning" id="lightning"></div>
+
+      <!-- SPLASH -->
+      <div class="screen active" data-screen="splash">
+        <div class="splash" onclick="go('onboarding')">
+          <div class="splashlogo"><div class="halo"></div>
+            <svg width="92" height="92" viewBox="0 0 30 30"><line x1="10" y1="15" x2="20" y2="15" stroke="#C026D3" stroke-width="2.2" stroke-linecap="round"/><circle cx="10" cy="15" r="5" fill="#8B5CF6"/><circle cx="20" cy="15" r="5" fill="#C026D3"/></svg>
+          </div>
+          <div class="center">
+            <div style="font-family:var(--head);font-size:24px;letter-spacing:3px;font-weight:700">LINKCONTROL&#8201;X</div>
+            <div class="eyebrow" style="margin-top:4px">CURSED ENERGY COMMAND CENTER</div>
+          </div>
+          <div class="barwrap"><i></i></div>
+          <div class="xs muted" style="letter-spacing:2px">INITIALIZING LINK SYSTEM...</div>
+        </div>
+      </div>
+
+      <!-- ONBOARDING -->
+      <div class="screen" data-screen="onboarding">
+        <div class="pad" style="display:flex;flex-direction:column;flex:1">
+          <div class="ob" id="ob-art"></div>
+          <div class="dots" id="ob-dots"><i class="on"></i><i></i><i></i></div>
+          <div class="row" style="margin-top:14px">
+            <button class="back" onclick="go('dashboard')">Skip</button>
+            <div class="grow"></div>
+            <button class="btn p" id="ob-next" style="width:auto;padding:12px 26px" onclick="obNext()">Next</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- DASHBOARD (command center) -->
+      <div class="screen" data-screen="dashboard">
+        <div class="pad">
+          <div class="row">
+            <div class="grow">
+              <div class="eyebrow">WELCOME, SORCERER</div>
+              <h1 class="s">COMMAND CENTER</h1>
+            </div>
+            <button class="iconbtn" title="Alerts"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 8a6 6 0 10-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.7 21a2 2 0 01-3.4 0"/></svg></button>
+            <button class="iconbtn" onclick="go('settings')" title="Settings"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.6 1.6 0 00.3 1.8l.1.1a2 2 0 11-2.8 2.8l-.1-.1a1.6 1.6 0 00-2.7 1.1V21a2 2 0 01-4 0v-.1A1.6 1.6 0 006 19.4l-.1.1a2 2 0 11-2.8-2.8l.1-.1A1.6 1.6 0 003 13.9H3a2 2 0 010-4h.1A1.6 1.6 0 004.6 7l-.1-.1a2 2 0 112.8-2.8l.1.1A1.6 1.6 0 009 4.6V4a2 2 0 014 0v.1A1.6 1.6 0 0018 4.6l.1-.1a2 2 0 112.8 2.8l-.1.1a1.6 1.6 0 001.1 2.7H21a2 2 0 010 4h-.1"/></svg></button>
+          </div>
+
+          <!-- system status -->
+          <div class="glass" style="margin-top:14px">
+            <div class="row">
+              <div class="ring2">
+                <svg viewBox="0 0 100 100"><circle cx="50" cy="50" r="42" fill="none" stroke="#2a2150" stroke-width="7"/>
+                  <circle cx="50" cy="50" r="42" fill="none" stroke="#8B5CF6" stroke-width="7" stroke-linecap="round"
+                    stroke-dasharray="264" stroke-dashoffset="58"/></svg>
+                <div class="sweep"></div>
+                <div class="val"><b>78</b><span>SECURE</span></div>
+              </div>
+              <div class="grow" style="margin-left:4px">
+                <div class="pill ok"><span class="dot ok"></span> SYSTEM NOMINAL</div>
+                <div class="statusline" style="margin-top:10px"><span class="dot live"></span> 1 secure link active</div>
+                <div class="k" style="margin-top:6px">Encryption · TLS + DTLS-SRTP</div>
+                <div class="wave" style="margin-top:10px" id="wave"></div>
+              </div>
+            </div>
+          </div>
+
+          <!-- authorized devices -->
+          <div class="label">Authorized devices</div>
+          <div class="glass tap" onclick="go('devices')">
+            <div class="row"><div class="ic">C</div><div class="grow"><div class="ttl">This phone · Controller</div>
+              <div class="statusline"><span class="dot ok"></span> Android 14 · active</div></div></div>
+          </div>
+          <div class="glass tap" onclick="go('devices')">
+            <div class="row"><div class="ic">R</div><div class="grow"><div class="ttl">Pixel 7 · Remote</div>
+              <div class="statusline"><span class="dot ok"></span> 82% · Wi-Fi · approved</div></div><div class="k">now</div></div>
+          </div>
+
+          <!-- network discovery -->
+          <div class="label">Network discovery <span class="demotag" style="position:static">DEMO</span></div>
+          <div class="glass">
+            <div class="netmap" style="aspect-ratio:16/8">
+              <span class="node host" style="left:50%;top:50%"></span>
+              <span class="node found" style="left:24%;top:30%"></span>
+              <span class="node found" style="left:74%;top:34%"></span>
+              <span class="node" style="left:32%;top:72%"></span>
+              <span class="node" style="left:68%;top:70%"></span>
+            </div>
+            <div class="row" style="margin-top:10px"><div class="grow k">Devices on LAN</div><div>5 seen · 2 authorized</div></div>
+          </div>
+
+          <!-- vulnerability summary (demo) -->
+          <div class="label">Vulnerability summary <span class="demotag" style="position:static">DEMO</span></div>
+          <div class="glass">
+            <div class="row" style="gap:8px">
+              <div class="grow center"><div style="font-family:var(--head);font-size:22px;color:var(--err)">1</div><div class="k">High</div></div>
+              <div class="grow center"><div style="font-family:var(--head);font-size:22px;color:var(--warn)">3</div><div class="k">Medium</div></div>
+              <div class="grow center"><div style="font-family:var(--head);font-size:22px;color:var(--blue)">6</div><div class="k">Low</div></div>
+              <div class="grow center"><div style="font-family:var(--head);font-size:22px;color:var(--ok)">42</div><div class="k">Passed</div></div>
+            </div>
+          </div>
+
+          <!-- recent alerts -->
+          <div class="label">Recent alerts <span class="demotag" style="position:static">DEMO</span></div>
+          <div class="glass">
+            <div class="alert"><span class="sev m"></span><div class="grow"><div>Unrecognized device probed pairing port</div><div class="k">blocked · 18:32</div></div></div>
+            <div class="alert"><span class="sev l"></span><div class="grow"><div>New device joined LAN: android-5f2a</div><div class="k">18:10</div></div></div>
+            <div class="alert"><span class="sev h"></span><div class="grow"><div>Expired pairing code reuse attempt</div><div class="k">rejected · 17:55</div></div></div>
+          </div>
+
+          <!-- activity terminal -->
+          <div class="label">Activity terminal</div>
+          <div class="term" id="term"></div>
+
+          <!-- actions -->
+          <div class="label">Actions</div>
+          <button class="btn p" onclick="go('scan')">RUN SECURITY SCAN</button>
+          <button class="btn g" onclick="go('qrscan')">SCAN QR CODE</button>
+          <button class="btn g" onclick="go('remote')">OPEN REMOTE CONTROL</button>
+        </div>
+      </div>
+
+      <!-- SECURITY SCAN (demo) -->
+      <div class="screen" data-screen="scan">
+        <div class="pad">
+          <button class="back" onclick="go('dashboard')">‹ Command center</button>
+          <div class="row"><h1 class="s grow">NETWORK SCAN</h1><span class="pill" id="scanstate">IDLE</span></div>
+          <div class="glass" style="margin-top:12px">
+            <div class="netmap" id="scanmap">
+              <span class="demotag">DEMO SCAN · NO REAL PROBING</span>
+              <span class="scanline2"></span>
+            </div>
+            <div class="row" style="margin-top:12px">
+              <div class="ring2"><svg viewBox="0 0 100 100"><circle cx="50" cy="50" r="42" fill="none" stroke="#2a2150" stroke-width="7"/>
+                <circle id="scanarc" cx="50" cy="50" r="42" fill="none" stroke="#8B5CF6" stroke-width="7" stroke-linecap="round" stroke-dasharray="264" stroke-dashoffset="264"/></svg>
+                <div class="val"><b id="scanpct">0%</b><span>PROGRESS</span></div></div>
+              <div class="grow" style="margin-left:6px"><div class="k">Discovered</div>
+                <div style="font-family:var(--head);font-size:22px" id="scanfound">0</div>
+                <div class="k" id="scanhint">Tap start to run a demo sweep.</div></div>
+            </div>
+          </div>
+          <div class="term" id="scanterm" style="margin-top:10px"></div>
+          <button class="btn p" id="scanbtn" onclick="runScan()">START SCAN</button>
+          <button class="btn g" id="scanresultbtn" hidden onclick="go('dashboard')">View on dashboard →</button>
+        </div>
+      </div>
+
+      <!-- QR SCAN (controller) -->
+      <div class="screen" data-screen="qrscan">
+        <div class="pad">
+          <button class="back" onclick="go('dashboard')">‹ Back</button>
+          <h1 class="s">SCAN TO LINK</h1>
+          <div class="glass" style="margin-top:12px">
+            <div class="scan" id="scanframe">
+              <video id="cam" playsinline muted style="position:absolute;inset:0;width:100%;height:100%;object-fit:cover" hidden></video>
+              <div class="grid"></div>
+              <span class="corner tl"></span><span class="corner tr"></span><span class="corner bl"></span><span class="corner br"></span>
+              <span class="line"></span>
+            </div>
+            <input id="qrfile" type="file" accept="image/*" capture="environment" hidden onchange="onQrFile(this)">
+            <button class="btn p" onclick="startScan()">Open camera to scan</button>
+            <div class="xs muted center" id="scanmsg" style="margin-top:8px">Point your camera at the host's QR code.</div>
+            <div class="row" style="gap:8px;margin-top:12px">
+              <input id="manualCode" inputmode="numeric" maxlength="6" placeholder="or enter 6-digit code"
+                style="flex:1;min-width:0;background:#0d0a1c;border:1px solid var(--edge);border-radius:11px;padding:12px;color:var(--fg);font-family:var(--mono);letter-spacing:4px;text-align:center">
+              <button class="btn g" style="width:auto;padding:0 18px;margin-top:0" onclick="manualLink()">Link</button>
+            </div>
+          </div>
+          <div class="glass center" id="scanresult" hidden>
+            <div class="eyebrow">DEVICE DETECTED</div>
+            <div class="ttl" id="scanname" style="margin-top:4px">Remote device</div>
+            <div class="sm" id="scancode" style="color:var(--purple);font-family:var(--mono)"></div>
+            <div class="sm muted">WAITING FOR REMOTE APPROVAL...</div>
+            <div class="ring"></div>
+            <button class="btn p" onclick="go('linked')">Continue →</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- APPROVAL (remote phone) -->
+      <div class="screen" data-screen="approval">
+        <div class="pad">
+          <div class="eyebrow center">INCOMING CONNECTION REQUEST</div>
+          <div class="seal" style="width:58%"><svg viewBox="0 0 100 100"><circle cx="50" cy="50" r="46" fill="none" stroke="#8B5CF6" stroke-width="1.5" stroke-dasharray="3 7"/></svg>
+            <div style="font-size:34px">🛡️</div></div>
+          <div class="glass" style="margin-top:8px">
+            <div class="row"><div class="grow"><div class="k">Controller</div><div class="ttl">Galaxy S22</div></div>
+              <div class="chip" style="color:var(--ok);border-color:rgba(52,211,153,.4)"><span class="dot ok"></span> verified</div></div>
+            <div class="label" style="margin:12px 0 6px">Requested permissions</div>
+            <div class="row" style="justify-content:space-between"><div><span class="dot live"></span> View screen</div><div class="toggle on" onclick="this.classList.toggle('on')"><i></i></div></div>
+            <div class="row" style="justify-content:space-between;margin-top:8px"><div><span class="dot live"></span> Remote control</div><div class="toggle on" onclick="this.classList.toggle('on')"><i></i></div></div>
+            <div class="row" style="justify-content:space-between;margin-top:8px"><div><span class="dot"></span> Launch apps</div><div class="toggle" onclick="this.classList.toggle('on')"><i></i></div></div>
+            <div class="row" style="margin-top:12px"><div class="grow k">Session duration</div><div>30 min</div></div>
+          </div>
+          <button class="btn p" onclick="go('linked')">APPROVE</button>
+          <button class="btn d" onclick="go('dashboard')">REJECT</button>
+        </div>
+      </div>
+
+      <!-- LINKED -->
+      <div class="screen" data-screen="linked">
+        <div class="pad" style="display:flex;flex-direction:column;flex:1;justify-content:center;text-align:center">
+          <div class="seal" style="width:62%;margin-top:0">
+            <svg viewBox="0 0 100 100"><circle cx="50" cy="50" r="46" fill="none" stroke="#8B5CF6" stroke-width="1.5" stroke-dasharray="3 6"/></svg>
+            <svg class="rev" viewBox="0 0 100 100"><circle cx="50" cy="50" r="38" fill="none" stroke="#C026D3" stroke-width="1" stroke-dasharray="2 9"/></svg>
+            <div style="font-family:var(--head);color:var(--purple);font-weight:700;letter-spacing:2px">LINK</div>
+          </div>
+          <div class="center" style="margin-top:8px"><span class="pill ok"><span class="dot ok"></span> SECURE LINK ESTABLISHED</span></div>
+          <h1 class="s" style="margin-top:12px">CURSED LINK ESTABLISHED</h1>
+          <div class="sm muted">Galaxy S22 ⟷ Pixel 7</div>
+          <button class="btn p" onclick="go('remote')" style="margin-top:20px">ENTER COMMAND CENTER</button>
+        </div>
+      </div>
+
+      <!-- REMOTE COMMAND CENTER -->
+      <div class="screen" data-screen="remote">
+        <div class="vbar">
+          <button class="iconbtn" onclick="go('dashboard')" title="Back" aria-label="Back"><svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"/></svg></button>
+          <span class="dot live"></span>
+          <div class="grow"><div style="font-size:13px">Pixel 7</div><div class="xs muted">Streaming · Excellent</div></div>
+          <button class="iconbtn" onclick="toggleApps()"><svg viewBox="0 0 24 24" width="22" height="22" fill="currentColor"><circle cx="5" cy="5" r="2"/><circle cx="12" cy="5" r="2"/><circle cx="19" cy="5" r="2"/><circle cx="5" cy="12" r="2"/><circle cx="12" cy="12" r="2"/><circle cx="19" cy="12" r="2"/><circle cx="5" cy="19" r="2"/><circle cx="12" cy="19" r="2"/><circle cx="19" cy="19" r="2"/></svg></button>
+        </div>
+        <div class="remote">
+          <div class="ribbon">Interface preview — sample screen, not a live feed</div>
+          <div class="homegrid" id="homegrid"></div>
+          <div class="appsheet" id="appsheet">
+            <div class="row" style="margin-bottom:6px"><div class="grow ttl">Apps on remote device</div>
+              <button class="iconbtn" style="color:var(--muted)" onclick="toggleApps()">Close</button></div>
+            <div id="applist"></div>
+          </div>
+        </div>
+        <div class="bnav">
+          <button class="on" onclick="go('remote')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 11l9-8 9 8"/><path d="M5 10v10h14V10"/></svg>Home</button>
+          <button onclick="go('launcher')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></svg>Apps</button>
+          <button onclick="go('sharing')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="4" width="20" height="13" rx="2"/><path d="M8 21h8"/></svg>Screen</button>
+          <button onclick="go('remote')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M12 3v3M12 18v3M3 12h3M18 12h3"/></svg>Controls</button>
+          <button onclick="go('settings')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M4 12h2M18 12h2M12 4v2M12 18v2"/></svg>Settings</button>
+        </div>
+      </div>
+
+      <!-- APP LAUNCHER -->
+      <div class="screen" data-screen="launcher">
+        <div class="pad">
+          <button class="back" onclick="go('remote')">‹ Command center</button>
+          <h1 class="s">REMOTE APPS</h1>
+          <input class="field" id="appsearch" placeholder="Search applications…" style="letter-spacing:0;font-family:var(--body)" oninput="filterApps(this.value)">
+          <div class="launch" id="launchgrid"></div>
+          <div class="sm muted center" id="launchempty" hidden style="margin-top:20px">No matching apps.</div>
+        </div>
+      </div>
+
+      <!-- SCREEN SHARING -->
+      <div class="screen" data-screen="sharing">
+        <div class="pad">
+          <button class="back" onclick="go('remote')">‹ Command center</button>
+          <h1 class="s">SCREEN SHARING</h1>
+          <div class="glass" style="margin-top:12px">
+            <div class="row"><div class="chip"><span class="dot live"></span> SHARING ACTIVE</div><div class="grow"></div><div class="k">02:41</div></div>
+            <div style="margin-top:12px;border-radius:12px;overflow:hidden;border:1px solid var(--edge);
+              aspect-ratio:9/16;max-height:230px;background:radial-gradient(120% 80% at 50% 10%,#1a1142,#07060f);
+              display:flex;align-items:center;justify-content:center" class="center">
+              <div class="sm muted">Remote preview<br>(sample — not a live feed)</div>
+            </div>
+            <div class="row" style="margin-top:12px"><div class="grow k">Quality</div><div style="color:var(--ok)">Excellent · 30fps</div></div>
+          </div>
+          <button class="btn g" onclick="go('sharing')">Pause sharing</button>
+          <button class="btn d" onclick="go('remote')">Stop sharing</button>
+          <div class="sm muted center" style="margin-top:10px">Phone 2 starts capture via Android's consent dialog. Stop ends it instantly.</div>
+        </div>
+      </div>
+
+      <!-- DEVICES -->
+      <div class="screen" data-screen="devices">
+        <div class="pad">
+          <button class="back" onclick="go('dashboard')">‹ Back</button>
+          <h1 class="s">PAIRED DEVICES</h1>
+          <div class="glass" style="margin-top:12px">
+            <div class="row"><div class="ic">R</div><div class="grow"><div class="ttl">Pixel 7</div>
+              <div class="statusline"><span class="dot ok"></span> Online · paired 15 Oct</div></div></div>
+            <div class="label" style="margin:12px 0 6px">Approved capabilities</div>
+            <div class="row" style="gap:6px;flex-wrap:wrap"><span class="chip">View screen</span><span class="chip">Control</span><span class="chip">Launch apps</span></div>
+            <div class="row" style="gap:8px;margin-top:12px"><button class="btn p" style="margin:0" onclick="go('remote')">Connect</button>
+              <button class="btn d" style="margin:0" onclick="go('devices')">Revoke</button></div>
+          </div>
+          <div class="glass">
+            <div class="row"><div class="ic">R</div><div class="grow"><div class="ttl">Galaxy S22</div>
+              <div class="statusline"><span class="dot"></span> Offline · last seen 14 Oct</div></div></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- SETTINGS -->
+      <div class="screen" data-screen="settings">
+        <div class="pad">
+          <button class="back" onclick="go('dashboard')">‹ Back</button>
+          <h1 class="s">SETTINGS</h1>
+
+          <div class="label">Appearance</div>
+          <div class="glass">
+            <div class="k">Theme</div>
+            <div class="swatch">
+              <b style="background:linear-gradient(135deg,#8B5CF6,#C026D3);outline:2px solid #fff3"></b>
+              <b style="background:linear-gradient(135deg,#38BDF8,#8B5CF6)"></b>
+              <b style="background:linear-gradient(135deg,#19152B,#3A2E63)"></b>
+            </div>
+            <div class="row" style="justify-content:space-between;margin-top:14px"><div>Reduce animations</div><div class="toggle" onclick="this.classList.toggle('on')"><i></i></div></div>
+            <div class="row" style="justify-content:space-between;margin-top:10px"><div>Sound effects</div><div class="toggle on" onclick="this.classList.toggle('on')"><i></i></div></div>
+          </div>
+
+          <div class="label">Security</div>
+          <div class="glass">
+            <div class="row" style="justify-content:space-between"><div>Review active sessions</div><div class="k">1 ›</div></div>
+            <div class="row" style="justify-content:space-between;margin-top:12px"><div>Session timeout</div><div class="k">30 min ›</div></div>
+            <button class="btn d" onclick="go('settings')">Disconnect all sessions</button>
+            <button class="btn g" onclick="go('settings')">Clear pairing history</button>
+          </div>
+
+          <div class="label">About</div>
+          <div class="glass">
+            <div class="row" style="justify-content:space-between"><div class="k">Version</div><div>1.0</div></div>
+            <div class="row" style="justify-content:space-between;margin-top:8px"><div class="k">Open-source licenses</div><div class="k">›</div></div>
+          </div>
+        </div>
+      </div>
+
+    </div>
+    <div class="hint">Interface preview of the JJK-inspired LinkControl app — tap through splash, onboarding, pairing, the command center, app launcher and more. The remote feed and device data are illustrative; it doesn't make a real connection.</div>
+  </div>
+</section>
+
+<section id="view-src" class="view">
+  <div class="srcwrap" id="srcwrap">
+    <nav class="tree" id="tree" aria-label="Project files"></nav>
+    <section class="pane">
+      <div class="pane-head"><button class="srcback" id="srcback">← Files</button>
+        <div class="pth" id="pth">Select a file</div>
+        <button class="copy" id="copy" hidden>Copy</button></div>
+      <div class="code" id="code"><div class="empty">Pick a file to view its source.</div></div>
+    </section>
+  </div>
+</section>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jsQR/1.4.0/jsQR.js"></script>
+<script src="./project-data.js"></script>
+<script>
+  const reduce = matchMedia('(prefers-reduced-motion:reduce)').matches;
+
+  /* ---------- real QR scanning ----------
+     Tries a live camera stream first (works in a normal browser). If the
+     environment blocks camera streams — as the claude.ai artifact sandbox does —
+     it falls back to a photo capture input, which opens the phone camera to take
+     one picture. Either way the QR is decoded on-device with jsQR. */
+  let camStream=null, scanRAF=0;
+  const decodeCanvas=document.createElement('canvas');
+
+  async function startScan(){
+    const msg=document.getElementById('scanmsg');
+    if(navigator.mediaDevices && navigator.mediaDevices.getUserMedia){
+      try{
+        camStream=await navigator.mediaDevices.getUserMedia({video:{facingMode:'environment'}, audio:false});
+        const v=document.getElementById('cam'); v.hidden=false; v.srcObject=camStream; await v.play();
+        msg.textContent='Scanning for a QR code…';
+        scanLoop(v);
+        return;
+      }catch(e){ /* blocked or denied → fall through to photo capture */ }
+    }
+    // Fallback path: open the camera to take a photo, then decode it.
+    document.getElementById('scanmsg').textContent='Live camera blocked here — opening photo capture, or enter the code below.';
+    document.getElementById('qrfile').click();
+  }
+
+  function manualLink(){
+    const v=(document.getElementById('manualCode').value||'').replace(/\D/g,'').slice(0,6);
+    if(v.length!==6){ document.getElementById('scanmsg').textContent='Enter a 6-digit code.'; return; }
+    handleDecoded(JSON.stringify({c:v}));
+  }
+
+  function scanLoop(v){
+    if(!camStream) return;
+    if(v.readyState===v.HAVE_ENOUGH_DATA && typeof jsQR!=='undefined'){
+      const w=v.videoWidth, h=v.videoHeight;
+      if(w&&h){
+        decodeCanvas.width=w; decodeCanvas.height=h;
+        const cx=decodeCanvas.getContext('2d',{willReadFrequently:true});
+        cx.drawImage(v,0,0,w,h);
+        const img=cx.getImageData(0,0,w,h);
+        const code=jsQR(img.data,w,h,{inversionAttempts:'dontInvert'});
+        if(code && code.data){ stopCam(); handleDecoded(code.data); return; }
+      }
+    }
+    scanRAF=requestAnimationFrame(()=>scanLoop(v));
+  }
+
+  function onQrFile(input){
+    const file=input.files && input.files[0]; if(!file) return;
+    const msg=document.getElementById('scanmsg');
+    const img=new Image();
+    img.onload=()=>{
+      const w=img.naturalWidth, h=img.naturalHeight;
+      decodeCanvas.width=w; decodeCanvas.height=h;
+      const cx=decodeCanvas.getContext('2d',{willReadFrequently:true});
+      cx.drawImage(img,0,0);
+      let code=null;
+      if(typeof jsQR!=='undefined'){ const d=cx.getImageData(0,0,w,h); code=jsQR(d.data,w,h); }
+      URL.revokeObjectURL(img.src);
+      if(code && code.data) handleDecoded(code.data);
+      else msg.textContent='No QR code found in that photo — try again.';
+    };
+    img.onerror=()=>{ msg.textContent='Could not read that image.'; };
+    img.src=URL.createObjectURL(file);
+    input.value='';
+  }
+
+  function handleDecoded(text){
+    // Accept our pairing payload {c,u} or a bare 6-digit code.
+    let codeStr=text, name='Remote device';
+    try{ const o=JSON.parse(text); if(o.c){ codeStr=o.c; } }catch(e){}
+    const digits=(codeStr.match(/\d{4,8}/)||[codeStr])[0];
+    document.getElementById('scanmsg').textContent='QR detected.';
+    document.getElementById('scancode').textContent='Pairing code · '+digits;
+    document.getElementById('scanname').textContent=name;
+    document.getElementById('scanresult').hidden=false;
+    document.getElementById('scanresult').scrollIntoView({behavior:'smooth',block:'center'});
+  }
+
+  function stopCam(){
+    if(scanRAF) cancelAnimationFrame(scanRAF), scanRAF=0;
+    if(camStream){ camStream.getTracks().forEach(t=>t.stop()); camStream=null; }
+    const v=document.getElementById('cam'); if(v){ v.hidden=true; v.srcObject=null; }
+  }
+
+  function setView(v){
+    document.getElementById('view-ui').classList.toggle('on', v==='ui');
+    document.getElementById('view-src').classList.toggle('on', v==='src');
+    document.getElementById('tab-ui').classList.toggle('on', v==='ui');
+    document.getElementById('tab-src').classList.toggle('on', v==='src');
+    if(v==='src' && !window._srcInit){ buildSource(); window._srcInit=true; }
+  }
+  function go(name){
+    if(name!=='qrscan') stopCam();  // release the camera when leaving the scanner
+    document.querySelectorAll('.screen').forEach(s=>s.classList.toggle('active', s.dataset.screen===name));
+    const a=document.querySelector('.screen.active'); if(a) a.scrollTop=0;
+    if(name==='qrscan'){ // auto-start the scanner when the screen opens
+      const r=document.getElementById('scanresult'); if(r) r.hidden=true;
+      startScan();
+    }
+  }
+  function toggleApps(){ document.getElementById('appsheet').classList.toggle('open'); }
+
+  // splash auto-advance
+  if(!reduce) setTimeout(()=>{ if(document.querySelector('.screen.active')?.dataset.screen==='splash') go('onboarding'); }, 2600);
+
+  // onboarding
+  const SLIDES=[
+    {t:"CONNECT YOUR DEVICES", d:"Pair two Android phones using a secure QR code.", art:beam()},
+    {t:"YOUR DEVICE COMMAND CENTER", d:"View an authorized remote screen and send supported commands.", art:dash()},
+    {t:"YOUR DEVICE. YOUR PERMISSION.", d:"Every pairing session requires approval from the remote device.", art:shield()}
+  ];
+  let obi=0;
+  function renderOb(){
+    const s=SLIDES[obi];
+    document.getElementById('ob-art').innerHTML=
+      '<div class="art">'+s.art+'</div><h2>'+s.t+'</h2><div class="sm muted" style="max-width:30ch;margin:0 auto">'+s.d+'</div>';
+    document.querySelectorAll('#ob-dots i').forEach((d,i)=>d.classList.toggle('on',i===obi));
+    document.getElementById('ob-next').textContent = obi===2 ? 'Get Started' : 'Next';
+  }
+  function obNext(){ if(obi<2){obi++;renderOb();} else go('dashboard'); }
+  function beam(){return '<svg width="150" height="130" viewBox="0 0 150 130"><rect x="8" y="34" width="34" height="62" rx="7" fill="none" stroke="#8B5CF6" stroke-width="2"/><rect x="108" y="34" width="34" height="62" rx="7" fill="none" stroke="#C026D3" stroke-width="2"/><line x1="42" y1="65" x2="108" y2="65" stroke="#8B5CF6" stroke-width="3" stroke-dasharray="4 4"><animate attributeName="stroke-dashoffset" from="0" to="16" dur="0.7s" repeatCount="indefinite"/></line></svg>';}
+  function dash(){return '<svg width="150" height="130" viewBox="0 0 150 130"><rect x="45" y="18" width="60" height="94" rx="10" fill="none" stroke="#8B5CF6" stroke-width="2"/><circle cx="75" cy="65" r="26" fill="none" stroke="#C026D3" stroke-width="2" stroke-dasharray="3 6"><animateTransform attributeName="transform" type="rotate" from="0 75 65" to="360 75 65" dur="7s" repeatCount="indefinite"/></circle></svg>';}
+  function shield(){return '<svg width="150" height="130" viewBox="0 0 150 130"><path d="M75 20l34 14v26c0 24-17 38-34 44-17-6-34-20-34-44V34z" fill="none" stroke="#38BDF8" stroke-width="2"/><path d="M62 66l9 9 18-18" fill="none" stroke="#8B5CF6" stroke-width="3" stroke-linecap="round"/></svg>';}
+  renderOb();
+
+  // faux QR
+  (function(){const el=document.getElementById('qr');if(!el)return;let s=4182030;const r=()=>{s=(s*1103515245+12345)&0x7fffffff;return s/0x7fffffff;};
+    const fs=(R,C)=>((R<7&&C<7)||(R<7&&C>=14)||(R>=14&&C<7));
+    const fm=(R,C)=>{const a=R%7,b=C%7;return a===0||a===6||b===0||b===6||(a>=2&&a<=4&&b>=2&&b<=4);};
+    for(let R=0;R<21;R++)for(let C=0;C<21;C++){const i=document.createElement('i');
+      const on=fs(R,C)?fm(R,C<7?C:C-14):r()>0.55;if(on)i.className='f';el.appendChild(i);}})();
+
+  // remote home + app launcher data
+  const APPS=["Settings","Chrome","Camera","Maps","Clock","Phone","Messages","Photos","Calendar","Files","Play Store","Calculator","YouTube","Gmail","Drive","Keep"];
+  (function(){const g=document.getElementById('homegrid');APPS.slice(0,12).forEach(n=>{const d=document.createElement('div');d.className='a';d.innerHTML='<b></b>'+n;g.appendChild(d);});
+    const list=document.getElementById('applist');
+    [["Settings","com.android.settings"],["Chrome","com.android.chrome"],["Maps","com.google.android.apps.maps"],["Play Store","com.android.vending"],["Clock","com.android.deskclock"]]
+      .forEach(([n,p])=>{const d=document.createElement('div');d.className='approw';d.innerHTML='<div class="n">'+n+'</div><div class="p">'+p+'</div>';d.onclick=()=>toggleApps();list.appendChild(d);});})();
+  function renderLaunch(filter){
+    const g=document.getElementById('launchgrid');g.innerHTML='';
+    const f=(filter||'').toLowerCase();
+    const items=APPS.filter(n=>n.toLowerCase().includes(f));
+    document.getElementById('launchempty').hidden=items.length>0;
+    items.forEach(n=>{const d=document.createElement('div');d.className='a';d.innerHTML='<b></b>'+n;g.appendChild(d);});
+  }
+  function filterApps(v){renderLaunch(v);}
+  renderLaunch('');
+
+  /* ---------- reduce motion ---------- */
+  let rmUser=false;
+  try{ rmUser = localStorage.getItem('lcx_rm')==='1'; }catch(e){}
+  function motionOff(){ return reduce || rmUser; }
+  function applyRm(){ document.body.classList.toggle('rm', rmUser); }
+  function toggleMotion(){ rmUser=!rmUser; try{localStorage.setItem('lcx_rm', rmUser?'1':'0');}catch(e){}
+    applyRm(); aura.restart(); }
+  applyRm();
+
+  /* ---------- cursed-energy background: mist + particles + lightning + parallax ---------- */
+  const aura=(function(){
+    const cv=document.getElementById('aura'); if(!cv) return {restart(){}};
+    const ctx=cv.getContext('2d'); let W=0,H=0,parts=[],blobs=[],raf=0,scrollY=0,nextBolt=0;
+    function size(){const r=cv.getBoundingClientRect();W=cv.width=Math.max(1,r.width);H=cv.height=Math.max(1,r.height);
+      parts=Array.from({length:30},()=>({x:Math.random()*W,y:Math.random()*H,r:Math.random()*1.8+0.6,
+        s:Math.random()*0.4+0.15,o:Math.random()*0.5+0.2,c:Math.random()>0.5?'139,92,246':'192,38,211'}));
+      blobs=Array.from({length:4},(_,i)=>({x:Math.random()*W,y:Math.random()*H,r:W*(0.4+Math.random()*0.3),
+        dx:(Math.random()-0.5)*0.12,dy:(Math.random()-0.5)*0.12,c:i%2?'139,92,246':'56,189,248'}));}
+    function paintStatic(){ctx.clearRect(0,0,W,H);
+      for(const b of blobs){const g=ctx.createRadialGradient(b.x,b.y,0,b.x,b.y,b.r);
+        g.addColorStop(0,'rgba('+b.c+',.06)');g.addColorStop(1,'transparent');ctx.fillStyle=g;ctx.fillRect(0,0,W,H);}
+      for(const p of parts){ctx.beginPath();ctx.arc(p.x,p.y,p.r,0,6.3);ctx.fillStyle='rgba('+p.c+','+p.o+')';ctx.fill();}}
+    function bolt(){ // supernatural lightning arc
+      ctx.save();ctx.strokeStyle='rgba(192,120,255,.8)';ctx.lineWidth=1.4;ctx.shadowBlur=12;ctx.shadowColor='rgba(139,92,246,.9)';
+      let x=Math.random()*W, y=0; ctx.beginPath();ctx.moveTo(x,y);
+      while(y<H){y+=18+Math.random()*26;x+=(Math.random()-0.5)*40;ctx.lineTo(x,y);}
+      ctx.stroke();ctx.restore();
+      const el=document.getElementById('lightning'); if(el){el.classList.remove('flash');void el.offsetWidth;el.classList.add('flash');}}
+    function frame(t){
+      ctx.clearRect(0,0,W,H);
+      // drifting mist
+      for(const b of blobs){b.x+=b.dx;b.y+=b.dy+scrollY*0.0006;
+        if(b.x<-b.r)b.x=W+b.r;if(b.x>W+b.r)b.x=-b.r;if(b.y<-b.r)b.y=H+b.r;if(b.y>H+b.r)b.y=-b.r;
+        const g=ctx.createRadialGradient(b.x,b.y,0,b.x,b.y,b.r);
+        g.addColorStop(0,'rgba('+b.c+',.07)');g.addColorStop(1,'transparent');ctx.fillStyle=g;ctx.fillRect(0,0,W,H);}
+      // particles
+      for(const p of parts){p.y-=p.s;if(p.y<-4){p.y=H+4;p.x=Math.random()*W;}
+        ctx.beginPath();ctx.arc(p.x,p.y,p.r,0,6.3);ctx.fillStyle='rgba('+p.c+','+p.o+')';
+        ctx.shadowBlur=8;ctx.shadowColor='rgba('+p.c+',.8)';ctx.fill();}
+      ctx.shadowBlur=0;
+      // occasional lightning
+      if(t>nextBolt){ bolt(); nextBolt=t+4000+Math.random()*5000; }
+      raf=requestAnimationFrame(frame);
+    }
+    function restart(){ if(raf)cancelAnimationFrame(raf),raf=0; size();
+      if(motionOff()) paintStatic(); else { nextBolt=performance.now()+2500; raf=requestAnimationFrame(frame); } }
+    new ResizeObserver(()=>{size(); if(motionOff())paintStatic();}).observe(cv);
+    // subtle parallax from the active screen's scroll
+    document.addEventListener('scroll',e=>{const s=e.target; if(s&&s.classList&&s.classList.contains('screen')) scrollY=s.scrollTop;},true);
+    restart();
+    return {restart};
+  })();
+
+  /* ---------- dashboard waveform + activity terminal ---------- */
+  (function(){
+    const w=document.getElementById('wave');
+    if(w){ for(let i=0;i<16;i++){const b=document.createElement('i');b.style.animationDelay=(i*0.07)+'s';w.appendChild(b);} }
+    const term=document.getElementById('term');
+    if(term){
+      const lines=[
+        ['t','[18:40:02] '],['g','secure link UP '],['v','pixel-7'],
+        ['t','\n[18:40:02] '],['', 'cipher TLS1.3 · DTLS-SRTP'],
+        ['t','\n[18:39:50] '],['', 'pairing token issued · ttl 300s'],
+        ['t','\n[18:39:44] '],['g','approved '],['', 'remote control grant'],
+        ['t','\n[18:39:20] '],['', 'listening for signaling (wss)'],
+      ];
+      term.innerHTML=lines.map(([c,s])=>c?'<span class="'+c+'">'+s+'</span>':s).join('')+'<span class="cur"></span>';
+    }
+  })();
+
+  /* ---------- demo security scan (clearly labeled, no real probing) ---------- */
+  let scanning=false;
+  function runScan(){
+    if(scanning) return; scanning=true;
+    const btn=document.getElementById('scanbtn'), arc=document.getElementById('scanarc'),
+      pct=document.getElementById('scanpct'), found=document.getElementById('scanfound'),
+      hint=document.getElementById('scanhint'), state=document.getElementById('scanstate'),
+      map=document.getElementById('scanmap'), term=document.getElementById('scanterm'),
+      resultBtn=document.getElementById('scanresultbtn');
+    btn.disabled=true; btn.textContent='SCANNING…'; state.textContent='SCANNING DEVICE';
+    resultBtn.hidden=true; term.innerHTML=''; found.textContent='0'; hint.textContent='Sweeping the local network (demo)…';
+    map.querySelectorAll('.node').forEach(n=>n.remove());
+    const log=(c,s)=>{term.innerHTML+=(c?'<span class="'+c+'">'+s+'</span>':s);term.scrollTop=term.scrollHeight;};
+    log('t','> demo sweep — no real packets sent\n');
+    const spots=[[26,34],[70,30],[40,66],[66,70],[50,48]]; let f=0;
+    const C=264, start=performance.now(), dur=motionOff()?300:3600;
+    function step(now){
+      const p=Math.min(1,(now-start)/dur);
+      arc.setAttribute('stroke-dashoffset', String(C*(1-p)));
+      pct.textContent=Math.round(p*100)+'%';
+      const want=Math.floor(p*spots.length);
+      while(f<want){const [x,y]=spots[f];const n=document.createElement('span');
+        n.className='node '+(f===4?'host':'found');n.style.left=x+'%';n.style.top=y+'%';map.appendChild(n);
+        found.textContent=String(f+1);
+        log('g','+ ');log('v','host '+(192+f)+'.168.0.'+(10+f*7));log('', f===4?' · this device\n':' · open: pairing\n');f++;}
+      if(p<1){ requestAnimationFrame(step); }
+      else{
+        state.textContent='SCAN COMPLETE'; hint.textContent='Demo complete · 10 findings (1 high, 3 med, 6 low)';
+        log('t','\n> done · ');log('g','10 findings');log('t',' (demo data)\n');
+        btn.disabled=false; btn.textContent='RUN AGAIN'; resultBtn.hidden=false; scanning=false;
+      }
+    }
+    requestAnimationFrame(step);
+  }
+
+  // source browser (lazy)
+  function buildSource(){
+    const FILES=window.PROJECT_FILES||{};const paths=Object.keys(FILES).sort();const groups={};
+    for(const p of paths){const s=p.lastIndexOf('/');const d=s===-1?'(root)':p.slice(0,s);(groups[d]||=[]).push(p);}
+    const order=Object.keys(groups).sort((a,b)=>a==='(root)'?-1:b==='(root)'?1:a.localeCompare(b));
+    const tree=document.getElementById('tree'),code=document.getElementById('code'),pth=document.getElementById('pth'),
+      copy=document.getElementById('copy'),wrap=document.getElementById('srcwrap');let cur=null;
+    for(const dir of order){const g=document.createElement('div');g.className='folder';
+      const r=document.createElement('div');r.className='r';r.textContent=dir;g.appendChild(r);
+      for(const p of groups[dir]){const b=document.createElement('button');b.className='file';b.dataset.path=p;
+        b.innerHTML='<span class="d"></span><span class="nm"></span>';b.querySelector('.nm').textContent=p.slice(p.lastIndexOf('/')+1);
+        b.onclick=()=>open(p);g.appendChild(b);}tree.appendChild(g);}
+    const esc=s=>s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+    function open(p){cur=p;document.querySelectorAll('.file').forEach(f=>f.classList.toggle('active',f.dataset.path===p));
+      pth.textContent=p;copy.hidden=false;copy.textContent='Copy';copy.classList.remove('ok');
+      const src=FILES[p]??'';const rows=src.split('\n');
+      code.innerHTML='<pre class="lines"><code class="ln">'+esc(rows.map((_,i)=>i+1).join('\n'))+'</code><code class="ct">'+esc(src)+'</code></pre>';
+      code.scrollTop=0;wrap.classList.add('show-file');}
+    copy.onclick=async()=>{if(cur==null)return;try{await navigator.clipboard.writeText(FILES[cur]??'');
+      copy.textContent='Copied';copy.classList.add('ok');setTimeout(()=>{copy.textContent='Copy';copy.classList.remove('ok');},1300);}
+      catch(e){const ct=code.querySelector('.ct');if(ct){const r=document.createRange();r.selectNodeContents(ct);const s=getSelection();s.removeAllRanges();s.addRange(r);}copy.textContent='Selected — Ctrl+C';}};
+    document.getElementById('srcback').onclick=()=>wrap.classList.remove('show-file');
+    if(matchMedia('(min-width:721px)').matches&&paths.length)open(paths.find(p=>p.endsWith('README.md'))||paths[0]);
+  }
+</script>
