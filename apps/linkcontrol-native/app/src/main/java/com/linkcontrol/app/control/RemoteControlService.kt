@@ -64,6 +64,8 @@ class RemoteControlService : AccessibilityService() {
                 val (w, h) = screenSize()
                 dispatch(buildSwipe(cmd.x1 * w, cmd.y1 * h, cmd.x2 * w, cmd.y2 * h, cmd.durationMs))
             }
+            // App list/launch are handled by SessionController (PackageManager), not here.
+            is ControlCommand.ListApps, is ControlCommand.LaunchApp -> { /* no-op for gestures */ }
         }
     }
 

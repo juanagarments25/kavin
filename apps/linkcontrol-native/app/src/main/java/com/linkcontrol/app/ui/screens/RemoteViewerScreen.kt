@@ -3,6 +3,8 @@ package com.linkcontrol.app.ui.screens
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -178,7 +180,7 @@ private fun AppsPanel(
                 androidx.compose.foundation.lazy.LazyColumn(
                     verticalArrangement = Arrangement.spacedBy(2.dp)
                 ) {
-                    androidx.compose.foundation.lazy.items(apps, key = { it.packageName }) { app ->
+                    items(apps, key = { it.packageName }) { app ->
                         Column(Modifier.fillMaxWidth()
                             .pointerInput(app.packageName) { detectTapGestures { onLaunch(app.packageName) } }
                             .padding(vertical = 12.dp)) {

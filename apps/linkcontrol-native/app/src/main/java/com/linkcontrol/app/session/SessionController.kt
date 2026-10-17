@@ -232,6 +232,10 @@ class SessionController private constructor(private val appContext: Context) :
         else signaling?.send("authenticate") { put("deviceId", id.deviceId); put("token", id.token); put("name", android.os.Build.MODEL) }
     }
 
+    // SignalingClient.Events: socket closed / failed (distinct from the WebRTC onClosed()).
+    override fun onClosed(reason: String) { signalingOnline.value = false }
+    override fun onFailure(t: Throwable) { signalingOnline.value = false }
+
     override fun onMessage(obj: JSONObject) {
         when (obj.optString("type")) {
             "registered" -> {
