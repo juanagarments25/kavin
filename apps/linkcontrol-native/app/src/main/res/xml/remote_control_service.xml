@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Capabilities requested by the remote-control accessibility service.
+     canPerformGestures lets it dispatch taps/swipes; global actions cover
+     Back / Home / Recents. It observes NO window content and retrieves NO
+     text, so it cannot read on-screen passwords or form fields. -->
+<accessibility-service xmlns:android="http://schemas.android.com/apk/res/android"
+    android:accessibilityEventTypes="typeWindowStateChanged"
+    android:accessibilityFeedbackType="feedbackGeneric"
+    android:canPerformGestures="true"
+    android:canRetrieveWindowContent="false"
+    android:notificationTimeout="100"
+    android:description="@string/a11y_description" />

@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">LinkControl</string>
+    <string name="brand_subtitle">CURSED ENERGY DEVICE NETWORK</string>
+    <string name="greeting">WELCOME, SORCERER</string>
+    <string name="a11y_description">Lets an authorized, paired device perform the taps, swipes, and navigation you approve during an active remote-support session. It does not read screen content or passwords. Turn it off any time to revoke remote control.</string>
+    <string name="capture_channel">Remote session</string>
+    <string name="capture_notif_title">Screen is being shared</string>
+    <string name="capture_notif_text">LinkControl is sharing this screen with a paired device. Tap Stop to end.</string>
+</resources>
