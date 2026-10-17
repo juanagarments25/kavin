@@ -1,0 +1,325 @@
+<title>QR Login</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600&display=swap">
+<style>
+  /* QR Login — phone number → OTP → one QR. Committed dark violet look. */
+  :root{
+    --bg:#080810; --panel:#141020; --panel2:#1D1730; --edge:rgba(139,92,246,.28);
+    --fg:#F8FAFC; --muted:#A1A1B5; --accent:#8B5CF6; --accent2:#C026D3; --ok:#34D399; --err:#FB7185;
+    --head:"Space Grotesk",ui-sans-serif,system-ui,sans-serif;
+    --body:"Inter",ui-sans-serif,system-ui,sans-serif;
+    --mono:ui-monospace,Menlo,Consolas,monospace;
+    color-scheme:dark;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;min-height:100%}
+  body{font-family:var(--body);color:var(--fg);
+    background:radial-gradient(1000px 560px at 50% -10%,#1a1133 0%,transparent 60%),var(--bg)}
+  .wrap{max-width:440px;margin:0 auto;min-height:100%;
+    padding-block:34px 48px;
+    padding-left:max(18px,env(safe-area-inset-left,0px));
+    padding-right:max(18px,env(safe-area-inset-right,0px));
+    display:flex;flex-direction:column;justify-content:center}
+
+  .brand{display:flex;flex-direction:column;align-items:center;gap:10px;margin-bottom:22px;text-align:center}
+  .brand .seal{width:70px;height:70px;position:relative;display:flex;align-items:center;justify-content:center}
+  .brand .seal .halo{position:absolute;inset:0;border-radius:50%;
+    background:radial-gradient(circle,rgba(139,92,246,.45),transparent 60%)}
+  h1{font-family:var(--head);font-size:24px;letter-spacing:1.5px;margin:0}
+  .tag{color:var(--muted);font-size:12.5px}
+
+  .panel{background:linear-gradient(180deg,var(--panel),var(--panel2));border:1px solid var(--edge);
+    border-radius:18px;padding:20px;box-shadow:0 0 40px -22px var(--accent)}
+  .step{display:none}.step.on{display:block;animation:fade .25s ease}
+  @keyframes fade{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
+
+  label.f{display:block;margin-bottom:12px}
+  label.f span{display:block;color:var(--muted);font-size:12px;margin-bottom:6px}
+  .phone{display:flex;gap:8px}
+  .cc{width:84px;flex:none;background:#0d0a1c;border:1px solid var(--edge);border-radius:12px;
+    padding:14px 10px;color:var(--fg);font:inherit;font-size:15px}
+  input{width:100%;background:#0d0a1c;border:1px solid var(--edge);border-radius:12px;padding:14px;
+    color:var(--fg);font:inherit;font-size:16px}
+  input::placeholder{color:#6b6480}
+
+  .otp{display:flex;gap:8px;justify-content:space-between;margin-bottom:6px}
+  .otp input{text-align:center;font-family:var(--mono);font-size:22px;padding:14px 0;letter-spacing:0}
+
+  .btn{display:flex;align-items:center;justify-content:center;gap:8px;width:100%;border:0;border-radius:24px;
+    padding:15px;font-family:var(--head);font-weight:600;font-size:15px;letter-spacing:.4px;cursor:pointer;
+    color:#fff;background:linear-gradient(90deg,var(--accent),var(--accent2));box-shadow:0 0 24px -6px var(--accent);margin-top:6px}
+  .btn:active{transform:scale(.98)} .btn:disabled{opacity:.45;cursor:default;box-shadow:none}
+  .btn.ghost{background:transparent;border:1px solid var(--accent);color:var(--accent);box-shadow:none}
+  .link{background:none;border:0;color:var(--accent);font:inherit;cursor:pointer;padding:0}
+
+  .row{display:flex;align-items:center;justify-content:space-between;margin-top:12px;font-size:13px;color:var(--muted)}
+  .msg{min-height:18px;font-size:13px;margin-top:10px}
+  .msg.err{color:var(--err)} .msg.ok{color:var(--ok)}
+
+  .demoCode{margin-top:14px;background:#0a0714;border:1px dashed rgba(139,92,246,.5);border-radius:12px;
+    padding:12px;text-align:center}
+  .demoCode .lbl{font-family:var(--head);font-size:9px;letter-spacing:2px;color:#FBBF24;
+    border:1px solid rgba(251,191,36,.4);border-radius:5px;padding:2px 7px;background:rgba(251,191,36,.08)}
+  .demoCode b{display:block;font-family:var(--mono);font-size:26px;letter-spacing:8px;color:var(--accent);margin-top:8px}
+  .demoCode small{color:var(--muted);font-size:11px}
+
+  /* success / QR */
+  .done{text-align:center}
+  .qrbox{display:inline-block;background:#fff;padding:14px;border-radius:14px;margin:6px 0 4px;
+    box-shadow:0 0 30px -6px var(--accent)}
+  .qrbox canvas{display:block;width:220px;height:220px;max-width:66vw;max-height:66vw;image-rendering:pixelated}
+  .who{font-family:var(--mono);font-size:16px;margin-top:4px}
+  .secret{margin-top:12px;background:#0a0714;border:1px solid var(--edge);border-radius:12px;padding:12px 14px}
+  .secret .slbl{font-family:var(--head);font-size:9px;letter-spacing:2px;color:var(--muted)}
+  .secret b{display:block;font-family:var(--mono);font-size:30px;letter-spacing:10px;color:var(--accent);margin:6px 0 4px}
+  .secret small{color:var(--muted);font-size:11px}
+  .note{color:var(--muted);font-size:11.5px;line-height:1.55;margin-top:16px}
+  :focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+</style>
+
+<div class="wrap">
+  <div class="brand">
+    <div class="seal"><div class="halo"></div>
+      <svg width="46" height="46" viewBox="0 0 30 30"><rect x="4" y="4" width="9" height="9" rx="1.5" fill="none" stroke="#8B5CF6" stroke-width="2"/><rect x="18" y="4" width="8" height="8" rx="1.5" fill="none" stroke="#C026D3" stroke-width="2"/><rect x="4" y="18" width="8" height="8" rx="1.5" fill="none" stroke="#C026D3" stroke-width="2"/><rect x="18" y="18" width="8" height="8" rx="1" fill="#8B5CF6"/></svg>
+    </div>
+    <div><h1>QR LOGIN</h1><div class="tag">Sign in with your mobile number</div></div>
+  </div>
+
+  <div class="panel">
+    <!-- STEP 1: phone -->
+    <div class="step on" id="step-phone">
+      <label class="f"><span>Mobile number</span>
+        <div class="phone">
+          <select class="cc" id="cc">
+            <option value="+91" selected>+91</option><option value="+1">+1</option><option value="+44">+44</option>
+            <option value="+61">+61</option><option value="+971">+971</option><option value="+65">+65</option>
+          </select>
+          <input id="phone" type="tel" inputmode="numeric" placeholder="98765 43210" autocomplete="tel">
+        </div>
+      </label>
+      <button class="btn" id="sendBtn">Send OTP</button>
+      <div id="recaptcha"></div>
+      <div class="msg" id="m1"></div>
+      <div class="demoCode" id="demoBox" hidden>
+        <span class="lbl">DEMO OTP</span>
+        <b id="demoCode">------</b>
+        <small>A real app sends this by SMS. Here it's shown on-screen so you can test the flow.</small>
+      </div>
+    </div>
+
+    <!-- STEP 2: otp -->
+    <div class="step" id="step-otp">
+      <p style="margin:0 0 14px;color:var(--muted);font-size:13.5px">Enter the 6-digit code sent to <b id="toNum" style="color:var(--fg)"></b></p>
+      <div class="demoCode" id="demoBox2" hidden style="margin:0 0 14px">
+        <span class="lbl">DEMO OTP</span>
+        <b id="demoCode2">------</b>
+        <small>Demo mode — type this code below. A real SMS code would arrive on the phone.</small>
+      </div>
+      <div class="otp" id="otp">
+        <input maxlength="1" inputmode="numeric"><input maxlength="1" inputmode="numeric"><input maxlength="1" inputmode="numeric">
+        <input maxlength="1" inputmode="numeric"><input maxlength="1" inputmode="numeric"><input maxlength="1" inputmode="numeric">
+      </div>
+      <button class="btn" id="verifyBtn">Verify &amp; continue</button>
+      <div class="msg" id="m2"></div>
+      <div class="row">
+        <button class="link" id="changeBtn">Change number</button>
+        <span id="resend">Resend in <b id="timer">30</b>s</span>
+      </div>
+    </div>
+
+    <!-- STEP 3: done + single QR -->
+    <div class="step" id="step-done">
+      <div class="done">
+        <div class="msg ok" style="font-family:var(--head);letter-spacing:1px">✓ VERIFIED</div>
+        <div class="qrbox"><canvas id="qr"></canvas></div>
+        <div class="who" id="who"></div>
+        <div class="secret">
+          <span class="slbl">SECRET CODE</span>
+          <b id="secretCode">------</b>
+          <small>One permanent code for this number — it's inside the QR above.</small>
+        </div>
+        <button class="btn" id="saveBtn" style="margin-top:16px">Save QR</button>
+        <button class="btn ghost" id="logoutBtn" style="margin-top:10px">Log out</button>
+      </div>
+    </div>
+
+    <p class="note" id="modeNote">Demo mode: the OTP is shown on-screen and checked here, because a web page can't send SMS by itself. Add your Firebase keys (see below) and host the app to send a <b>real OTP by SMS</b> — then this note turns green and the on-screen code disappears.</p>
+  </div>
+</div>
+
+<!-- Firebase (loads from jsDelivr; only initialised when you fill FIREBASE_CONFIG). -->
+<script src="https://cdn.jsdelivr.net/npm/firebase@9.23.0/firebase-app-compat.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/firebase@9.23.0/firebase-auth-compat.js"></script>
+<script src="qrcode-generator.js"></script>
+<script>
+  /* ========= FIREBASE PHONE AUTH =========
+     To send a REAL OTP by SMS:
+       1. Create a free project at console.firebase.google.com
+       2. Build → Authentication → Sign-in method → enable "Phone"
+       3. Project settings → Your apps → Web app → copy the config
+       4. Paste the values below, host the app over HTTPS, and add your
+          host (e.g. yoursite.netlify.app) under Authentication → Settings →
+          Authorized domains.
+     Leave these blank to stay in on-device demo mode. */
+  const FIREBASE_CONFIG = {
+    apiKey: "",
+    authDomain: "",
+    projectId: "",
+    appId: ""
+  };
+
+  const $ = (id) => document.getElementById(id);
+  const steps = { phone: $("step-phone"), otp: $("step-otp"), done: $("step-done") };
+  function show(name){ for (const k in steps) steps[k].classList.toggle("on", k === name); }
+
+  let otpValue = "", fullNumber = "", timerId = 0;
+
+  // --- Firebase setup (real SMS) with graceful demo fallback ---
+  let useFirebase = false, recaptcha = null, confirmation = null;
+  (function initFirebase(){
+    if (!FIREBASE_CONFIG.apiKey || typeof firebase === "undefined") return; // demo mode
+    try {
+      firebase.initializeApp(FIREBASE_CONFIG);
+      recaptcha = new firebase.auth.RecaptchaVerifier("recaptcha", { size: "invisible" });
+      useFirebase = true;
+      $("modeNote").className = "note"; $("modeNote").style.color = "var(--ok)";
+      $("modeNote").innerHTML = "Live SMS mode — a real one-time code is sent to the number via Firebase Phone Auth.";
+    } catch (e) { useFirebase = false; }
+  })();
+
+  // --- STEP 1: send OTP ---
+  $("phone").addEventListener("input", function(){ this.value = this.value.replace(/[^\d]/g, "").slice(0, 12); });
+  $("sendBtn").addEventListener("click", sendOtp);
+  function sendOtp(){
+    const num = $("phone").value.trim();
+    if (num.length < 7){ msg("m1", "Enter a valid mobile number.", "err"); return; }
+    fullNumber = $("cc").value + num;
+    $("toNum").textContent = fullNumber;
+
+    if (useFirebase){
+      $("sendBtn").disabled = true; msg("m1", "Sending SMS…", "");
+      firebase.auth().signInWithPhoneNumber(fullNumber, recaptcha)
+        .then((res) => {
+          confirmation = res;
+          $("demoBox").hidden = true;
+          $("demoBox2").hidden = true;
+          msg("m1", "Code sent by SMS.", "ok");
+          $("sendBtn").disabled = false;
+          show("otp"); clearOtp(); startTimer(30); firstOtp().focus();
+        })
+        .catch((err) => {
+          $("sendBtn").disabled = false;
+          msg("m1", "Couldn't send SMS: " + (err && err.code ? err.code : "error") + ". Check the number / Firebase setup.", "err");
+        });
+      return;
+    }
+
+    // Demo fallback: generate + show the code on-device (on both screens).
+    otpValue = String(Math.floor(100000 + Math.random() * 900000));
+    $("demoCode").textContent = otpValue;
+    $("demoBox").hidden = false;
+    $("demoCode2").textContent = otpValue;
+    $("demoBox2").hidden = false;
+    msg("m1", "OTP generated (demo).", "ok");
+    setTimeout(() => { show("otp"); clearOtp(); startTimer(30); firstOtp().focus(); }, 500);
+  }
+
+  // --- STEP 2: OTP inputs ---
+  const otpInputs = Array.from($("otp").querySelectorAll("input"));
+  function firstOtp(){ return otpInputs[0]; }
+  function clearOtp(){ otpInputs.forEach(i => i.value = ""); }
+  otpInputs.forEach((inp, i) => {
+    inp.addEventListener("input", () => {
+      inp.value = inp.value.replace(/\D/g, "");
+      if (inp.value && i < otpInputs.length - 1) otpInputs[i + 1].focus();
+      if (otpInputs.every(x => x.value)) verify();
+    });
+    inp.addEventListener("keydown", (e) => {
+      if (e.key === "Backspace" && !inp.value && i > 0) otpInputs[i - 1].focus();
+    });
+    inp.addEventListener("paste", (e) => {
+      const d = (e.clipboardData.getData("text") || "").replace(/\D/g, "").slice(0, 6);
+      if (d.length){ e.preventDefault(); d.split("").forEach((c, k) => { if (otpInputs[k]) otpInputs[k].value = c; });
+        if (d.length === 6) verify(); }
+    });
+  });
+  $("verifyBtn").addEventListener("click", verify);
+  function verify(){
+    const entered = otpInputs.map(i => i.value).join("");
+    if (entered.length < 6){ msg("m2", "Enter all 6 digits.", "err"); return; }
+
+    if (useFirebase && confirmation){
+      msg("m2", "Verifying…", "");
+      confirmation.confirm(entered)
+        .then(() => { clearInterval(timerId); msg("m2", "", ""); finishLogin(); })
+        .catch(() => msg("m2", "Incorrect code. Try again.", "err"));
+      return;
+    }
+
+    if (entered !== otpValue){ msg("m2", "Incorrect code. Try again.", "err"); return; }
+    clearInterval(timerId);
+    msg("m2", "", "");
+    finishLogin();
+  }
+  $("changeBtn").addEventListener("click", () => { show("phone"); msg("m1", "", ""); $("demoBox").hidden = true; });
+
+  function startTimer(sec){
+    clearInterval(timerId); $("timer").textContent = sec; $("resend").innerHTML = 'Resend in <b id="timer">' + sec + "</b>s";
+    timerId = setInterval(() => {
+      sec--; const t = $("timer"); if (t) t.textContent = sec;
+      if (sec <= 0){ clearInterval(timerId);
+        $("resend").innerHTML = '<button class="link" id="resendBtn">Resend OTP</button>';
+        $("resendBtn").addEventListener("click", () => { sendOtp(); }); }
+    }, 1000);
+  }
+
+  // --- STEP 3: single QR + one permanent secret code per number ---
+  // Same number always gets the same 6-digit code (stored locally).
+  function getOrCreateCode(number){
+    let map = {};
+    try { map = JSON.parse(localStorage.getItem("qrlogin_codes") || "{}"); } catch(e){}
+    if (!map[number]){
+      map[number] = String(Math.floor(100000 + Math.random() * 900000));
+      try { localStorage.setItem("qrlogin_codes", JSON.stringify(map)); } catch(e){}
+    }
+    return map[number];
+  }
+  function finishLogin(){
+    try { localStorage.setItem("qrlogin_num", fullNumber); } catch(e){}
+    const code = getOrCreateCode(fullNumber);
+    $("who").textContent = fullNumber;
+    $("secretCode").textContent = code;
+    // Encode number + its secret code in the QR.
+    renderQR(JSON.stringify({ app: "qrlogin", number: fullNumber, code: code }));
+    show("done");
+  }
+  function renderQR(text){
+    const qr = qrcode(0, "M"); qr.addData(text); qr.make();
+    const n = qr.getModuleCount(), scale = 6, quiet = 4, dim = (n + quiet*2) * scale;
+    const cv = $("qr"), dpr = Math.min(window.devicePixelRatio || 1, 3);
+    cv.width = dim*dpr; cv.height = dim*dpr;
+    const ctx = cv.getContext("2d"); ctx.scale(dpr, dpr);
+    ctx.fillStyle = "#ffffff"; ctx.fillRect(0, 0, dim, dim);
+    ctx.fillStyle = "#0b0818";
+    for (let r=0;r<n;r++) for (let c=0;c<n;c++) if (qr.isDark(r,c)) ctx.fillRect((c+quiet)*scale,(r+quiet)*scale,scale,scale);
+  }
+  $("saveBtn").addEventListener("click", () => {
+    $("qr").toBlob((b) => { if (!b) return; const u = URL.createObjectURL(b); window.open(u, "_blank");
+      setTimeout(() => URL.revokeObjectURL(u), 60000); }, "image/png");
+  });
+  $("logoutBtn").addEventListener("click", () => {
+    try { localStorage.removeItem("qrlogin_num"); } catch(e){}
+    otpValue = ""; fullNumber = ""; $("phone").value = ""; $("demoBox").hidden = true;
+    msg("m1","","" ); show("phone");
+  });
+
+  function msg(id, text, kind){ const el = $(id); el.textContent = text; el.className = "msg " + (kind || ""); }
+
+  // resume an existing session
+  try {
+    const saved = localStorage.getItem("qrlogin_num");
+    if (saved){ fullNumber = saved; const code = getOrCreateCode(saved);
+      $("who").textContent = saved; $("secretCode").textContent = code;
+      renderQR(JSON.stringify({ app: "qrlogin", number: saved, code: code })); show("done"); }
+  } catch(e){}
+</script>
